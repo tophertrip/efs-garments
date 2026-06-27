@@ -141,7 +141,7 @@ app.get('/api/projects', auth, wrap(async (req, res) => {
     params.push(`%${search}%`, `%${search}%`);
   }
   const rows = await query(`
-    SELECT p.*, c.name AS customer_name
+    SELECT p.*, c.name AS customer_name, c.company AS customer_company
     FROM projects p
     LEFT JOIN customers c ON c.id = p.customer_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
