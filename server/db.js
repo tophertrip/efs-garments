@@ -15,7 +15,15 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
   max: 5,
-  idleTimeoutMillis: 30000,
+  idleTimeoutMillis: 10000,
+  keepAlive: true,
+});
+
+// CRITICAL: without this handler, an error on an idle client (e.g. Supabase's
+// pooler closing an idle connection) is thrown as an uncaught exception and
+// crashes the whole process. Swallow it — pg will reconnect on the next query.
+pool.on('error', (err) => {
+  console.error('pg idle-client error (ignored):', err.message);
 });
 
 // Convert "?" placeholders into Postgres "$1, $2, …".
