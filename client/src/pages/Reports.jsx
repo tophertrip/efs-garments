@@ -132,6 +132,7 @@ export default function Reports() {
               <option value="all">All orders</option>
               <option value="active">Active only</option>
               <option value="delivered">Delivered only</option>
+              <option value="paid">Paid only</option>
             </Select>
           </label>
         </div>

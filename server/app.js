@@ -396,7 +396,8 @@ app.get('/api/reports', auth, wrap(async (req, res) => {
   if (from) { where.push(`${dateCol}::date >= ?::date`); params.push(from); }
   if (to) { where.push(`${dateCol}::date <= ?::date`); params.push(to); }
   if (status === 'delivered') where.push(`p.status = 'delivered'`);
-  else if (status === 'active') where.push(`p.status != 'delivered'`);
+  else if (status === 'paid') where.push(`p.status = 'paid'`);
+  else if (status === 'active') where.push(`p.status NOT IN ('delivered','paid')`);
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
   let keyExpr;
