@@ -10,11 +10,12 @@ import Customers from './pages/Customers';
 import Tasks from './pages/Tasks';
 import Reports from './pages/Reports';
 
-function Protected({ children, adminOnly }) {
+function Protected({ children, adminOnly, roles }) {
   const { user, isAdmin } = useAuth();
   const location = useLocation();
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return <Layout>{children}</Layout>;
 }
 
@@ -33,7 +34,7 @@ export default function App() {
       <Route path="/projects" element={<Protected><ProjectsList /></Protected>} />
       <Route path="/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
       <Route path="/customers" element={<Protected><Customers /></Protected>} />
-      <Route path="/reports" element={<Protected adminOnly><Reports /></Protected>} />
+      <Route path="/reports" element={<Protected roles={['admin', 'finance']}><Reports /></Protected>} />
       <Route path="/tasks" element={<Protected><Tasks /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -21,6 +21,7 @@ const financeNav = [
   { to: '/', label: 'My Work', icon: '🧰', end: true },
   { to: '/projects', label: 'Projects', icon: '📁' },
   { to: '/customers', label: 'Customers', icon: '👥' },
+  { to: '/reports', label: 'Reports', icon: '📈' },
   { to: '/tasks', label: 'My Tasks', icon: '🔔' },
 ];
 
