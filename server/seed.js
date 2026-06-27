@@ -17,11 +17,11 @@ async function seed() {
   // --- Users -------------------------------------------------------------
   const users = {};
   const userRows = [
-    ['Maria Santos (Admin)', 'admin', '1234'],
-    ['Jun Reyes (Purchasing)', 'purchasing', '2222'],
-    ['Liza Cruz (Printing)', 'printing', '3333'],
-    ['Ramon Dela Cruz (Cutting & Sewing)', 'cutting_sewing', '5555'],
-    ['Ana Villanueva (QA)', 'qa', '4444'],
+    ['Admin Long', 'admin', '1234'],
+    ['Purchasing Bee', 'purchasing', '2222'],
+    ['Printing Ton', 'printing', '3333'],
+    ['Ate Sew', 'cutting_sewing', '5555'],
+    ['QA Ches', 'qa', '4444'],
   ];
   for (const [name, role, pin] of userRows) {
     const r = await pool.query('INSERT INTO users (name, role, pin) VALUES ($1,$2,$3) RETURNING id', [name, role, pin]);
