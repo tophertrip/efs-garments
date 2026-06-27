@@ -372,7 +372,7 @@ app.get('/api/dashboard', auth, wrap(async (req, res) => {
     `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ${activeStatuses} AND target_date < ?`, [today]
   );
   const { n: completedThisMonth } = await get(
-    `SELECT COUNT(*)::int AS n FROM projects WHERE status = 'delivered' AND updated_at >= ?`, [monthStart]
+    `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ('delivered','paid') AND updated_at >= ?`, [monthStart]
   );
 
   const byStageRows = await query('SELECT status, COUNT(*)::int AS n FROM projects GROUP BY status');
