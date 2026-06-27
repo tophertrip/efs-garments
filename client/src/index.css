@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: #F5F7FA;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin scrollbars for the kanban board */
+.kanban-scroll::-webkit-scrollbar { height: 10px; }
+.kanban-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+.kanban-scroll::-webkit-scrollbar-track { background: transparent; }

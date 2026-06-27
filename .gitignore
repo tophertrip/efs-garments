@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+client/dist/
+
+# Local SQLite database (regenerate with `npm run seed`)
+server/*.db
+server/*.db-shm
+server/*.db-wal
+
+# Logs
+*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
