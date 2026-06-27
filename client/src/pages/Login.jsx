@@ -39,7 +39,7 @@ export default function Login() {
           <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gold text-navy text-2xl font-extrabold mb-4">
             EFS
           </div>
-          <h1 className="text-2xl font-extrabold text-white">EFS Garments</h1>
+          <h1 className="text-2xl font-extrabold text-white">EFS Garments Manufacturing</h1>
           <p className="text-gray-300 text-sm mt-1">Production Tracker — enter your PIN</p>
         </div>
 
