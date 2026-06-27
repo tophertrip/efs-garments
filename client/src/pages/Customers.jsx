@@ -4,19 +4,29 @@ import { useAuth } from '../auth';
 import { fmtDate } from '../constants';
 import { Card, Spinner, Button, Modal, Field, Input, Select, Empty, ConfirmDialog } from '../components';
 
-function AddCustomerModal({ onClose, onSaved }) {
-  const [form, setForm] = useState({ company: '', name: '', contact: '', messenger_name: '', source: 'facebook' });
+function CustomerModal({ customer, onClose, onSaved }) {
+  const editing = Boolean(customer);
+  const [form, setForm] = useState(() => ({
+    company: customer?.company || '',
+    name: customer?.name || '',
+    contact: customer?.contact || '',
+    messenger_name: customer?.messenger_name || '',
+    source: customer?.source || 'facebook',
+  }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
     if (!form.name.trim()) { setError('Name is required'); return; }
     setBusy(true);
-    try { await api.post('/customers', form); onSaved(); onClose(); }
-    catch (e) { setError(e.message); } finally { setBusy(false); }
+    try {
+      if (editing) await api.put(`/customers/${customer.id}`, form);
+      else await api.post('/customers', form);
+      onSaved(); onClose();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   return (
-    <Modal title="New Customer" onClose={onClose}>
+    <Modal title={editing ? 'Edit Customer' : 'New Customer'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
         <Field label="Company"><Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Organization / business name" /></Field>
@@ -47,6 +57,7 @@ export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [show, setShow] = useState(false);
+  const [editCustomer, setEditCustomer] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -101,22 +112,29 @@ export default function Customers() {
                 <span className="font-semibold text-navy">{c.project_count} project{c.project_count !== 1 ? 's' : ''}</span>
                 <span className="text-xs text-gray-400">since {fmtDate(c.created_at)}</span>
               </div>
-              {isAdmin && (
-                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
+              <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end gap-4">
+                <button
+                  onClick={() => setEditCustomer(c)}
+                  className="text-xs font-medium text-navy hover:underline"
+                >
+                  ✏️ Edit
+                </button>
+                {isAdmin && (
                   <button
                     onClick={() => { setDeleteError(''); setToDelete(c); }}
                     className="text-xs font-medium text-red-600 hover:text-red-700"
                   >
                     🗑 Delete
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </Card>
           ))}
         </div>
       )}
 
-      {show && <AddCustomerModal onClose={() => setShow(false)} onSaved={load} />}
+      {show && <CustomerModal onClose={() => setShow(false)} onSaved={load} />}
+      {editCustomer && <CustomerModal customer={editCustomer} onClose={() => setEditCustomer(null)} onSaved={load} />}
       {toDelete && (
         <ConfirmDialog
           title={`Delete ${toDelete.company || toDelete.name}?`}

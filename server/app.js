@@ -290,6 +290,24 @@ app.post('/api/customers', auth, wrap(async (req, res) => {
   res.status(201).json(inserted.rows[0]);
 }));
 
+// Update an existing customer.
+app.put('/api/customers/:id', auth, wrap(async (req, res) => {
+  const existing = await get('SELECT * FROM customers WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'Customer not found' });
+  if ('name' in req.body && !String(req.body.name || '').trim()) {
+    return res.status(400).json({ error: 'Name required' });
+  }
+  const merged = { ...existing };
+  for (const f of ['company', 'name', 'contact', 'messenger_name', 'source']) {
+    if (f in req.body) merged[f] = req.body[f];
+  }
+  await run(
+    'UPDATE customers SET company=?, name=?, contact=?, messenger_name=?, source=? WHERE id=?',
+    [merged.company || null, merged.name, merged.contact || null, merged.messenger_name || null, merged.source || 'facebook', req.params.id]
+  );
+  res.json(await get('SELECT * FROM customers WHERE id = ?', [req.params.id]));
+}));
+
 // Delete a customer — blocked while they still have job orders, to avoid orphans.
 app.delete('/api/customers/:id', auth, wrap(async (req, res) => {
   const customer = await get('SELECT id FROM customers WHERE id = ?', [req.params.id]);
