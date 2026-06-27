@@ -105,7 +105,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
             <div className="flex gap-2">
               <Select value={form.customer_id} onChange={(e) => set('customer_id', e.target.value)}>
                 <option value="">— Select customer —</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {customers.map((c) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
               </Select>
               <Button type="button" variant="outline" onClick={() => setCreatingCustomer(true)} className="whitespace-nowrap">+ New</Button>
             </div>
