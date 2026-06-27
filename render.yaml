@@ -1,0 +1,17 @@
+# Render Blueprint — deploys EFS Garments as a single free web service.
+# Builds the React client, then runs the Express API (which also serves the
+# built frontend) against Supabase Postgres.
+services:
+  - type: web
+    name: efs-garments
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: cd client && npm install --include=dev && npm run build && cd ../server && npm install
+    startCommand: cd server && node index.js
+    healthCheckPath: /api/stages
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false   # set in the Render dashboard / via API (the Supabase connection string)
