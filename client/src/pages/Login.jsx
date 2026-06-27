@@ -77,7 +77,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-6 leading-relaxed">
-          Demo PINs — Admin 1234 · Purchasing 2222 · Printing 3333<br />Cutting & Sewing 5555 · QA 4444
+          Demo PINs — Admin 1234 · Purchasing 2222 · Printing 3333<br />Cutting & Sewing 5555 · QA 4444 · Finance 8888
         </p>
       </div>
     </div>
