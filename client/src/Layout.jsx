@@ -16,11 +16,19 @@ const teamNav = [
   { to: '/tasks', label: 'My Tasks', icon: '🔔' },
 ];
 
+// Finance sees their stage (Delivered) plus all projects & customers.
+const financeNav = [
+  { to: '/', label: 'My Work', icon: '🧰', end: true },
+  { to: '/projects', label: 'Projects', icon: '📁' },
+  { to: '/customers', label: 'Customers', icon: '👥' },
+  { to: '/tasks', label: 'My Tasks', icon: '🔔' },
+];
+
 export default function Layout({ children }) {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const nav = isAdmin ? adminNav : teamNav;
+  const nav = isAdmin ? adminNav : user?.role === 'finance' ? financeNav : teamNav;
 
   const initials = (user?.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('');
 

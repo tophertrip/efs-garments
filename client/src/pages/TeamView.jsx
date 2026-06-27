@@ -11,6 +11,7 @@ const ROLE_STAGE = {
   printing: 'printing',
   cutting_sewing: 'cutting_sewing',
   qa: 'qa',
+  finance: 'delivered', // Finance watches Delivered orders (and marks them Paid)
 };
 
 export default function TeamView() {

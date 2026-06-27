@@ -34,6 +34,7 @@ export const ROLE_LABELS = {
   printing: 'Printing',
   cutting_sewing: 'Cutting & Sewing',
   qa: 'Quality Check',
+  finance: 'Finance',
 };
 
 // Currency formatting (PHP).
