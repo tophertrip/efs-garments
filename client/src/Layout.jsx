@@ -28,11 +28,24 @@ const financeNav = [
   { to: '/tasks', label: 'My Tasks', icon: '🔔' },
 ];
 
+// Marketing handles the sales stages, plus the dashboard, projects & customers.
+const marketingNav = [
+  { to: '/', label: 'My Work', icon: '🧰', end: true },
+  { to: '/dashboard', label: 'Dashboard', icon: '📊' },
+  { to: '/projects', label: 'Projects', icon: '📁' },
+  { to: '/calendar', label: 'Calendar', icon: '📅' },
+  { to: '/customers', label: 'Customers', icon: '👥' },
+  { to: '/tasks', label: 'My Tasks', icon: '🔔' },
+];
+
 export default function Layout({ children }) {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const nav = isAdmin ? adminNav : user?.role === 'finance' ? financeNav : teamNav;
+  const nav = isAdmin ? adminNav
+    : user?.role === 'finance' ? financeNav
+    : user?.role === 'marketing' ? marketingNav
+    : teamNav;
 
   const initials = (user?.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('');
 

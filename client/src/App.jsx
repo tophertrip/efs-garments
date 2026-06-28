@@ -32,6 +32,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<Protected><Home /></Protected>} />
+      <Route path="/dashboard" element={<Protected roles={['admin', 'marketing']}><Dashboard /></Protected>} />
       <Route path="/projects" element={<Protected><ProjectsList /></Protected>} />
       <Route path="/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
       <Route path="/calendar" element={<Protected><CalendarPage /></Protected>} />
