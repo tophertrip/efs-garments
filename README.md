@@ -52,15 +52,7 @@ To reset all data back to the sample set: `cd server && npm run seed`.
 
 ---
 
-## Demo logins (PIN)
 
-| Role | Name | PIN | Sees |
-|------|------|-----|------|
-| Admin | Maria Santos | **1234** | Full dashboard, kanban, all projects, customers, reminders |
-| Purchasing | Jun Reyes | **2222** | Projects in *Purchasing* + own tasks |
-| Printing | Liza Cruz | **3333** | Projects in *Printing* + own tasks |
-| Cutting & Sewing | Ramon Dela Cruz | **5555** | Projects in *Cutting & Sewing* + own tasks |
-| QA | Ana Villanueva | **4444** | Projects in *Quality Check* + own tasks |
 
 ---
 
