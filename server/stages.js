@@ -3,6 +3,7 @@ const STAGES = [
   { key: 'inquiry',        label: 'Inquiry',                 owner: 'admin' },
   { key: 'quotation',      label: 'Quotation',               owner: 'admin' },
   { key: 'confirmed',      label: 'Confirmed',               owner: 'admin' },
+  { key: 'layout_pattern', label: 'Layout / Pattern',        owner: 'printing' },
   { key: 'purchasing',     label: 'Purchasing',              owner: 'purchasing' },
   { key: 'printing',       label: 'Printing',                owner: 'printing' },
   { key: 'cutting_sewing', label: 'Cutting & Sewing',        owner: 'cutting_sewing' },
