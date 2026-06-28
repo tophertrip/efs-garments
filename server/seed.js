@@ -24,6 +24,7 @@ async function seed() {
     ['QA Ches', 'qa', '4444'],
     ['Fin El', 'finance', '8888'],
     ['Art Tist', 'graphic_artist', '9999'],
+    ['Mark Et', 'marketing', '1111'],
   ];
   for (const [name, role, pin] of userRows) {
     const r = await pool.query('INSERT INTO users (name, role, pin) VALUES ($1,$2,$3) RETURNING id', [name, role, pin]);

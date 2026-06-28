@@ -42,6 +42,7 @@ export const ROLE_LABELS = {
   qa: 'Quality Check',
   finance: 'Finance',
   graphic_artist: 'Graphic Artist',
+  marketing: 'Marketing',
 };
 
 // Currency formatting (PHP).

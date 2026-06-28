@@ -7,6 +7,7 @@ import { Card, Spinner, Button, CategoryBadge, PriorityBadge, DaysLeft, Empty } 
 
 // Stages each role is responsible for, in pipeline order.
 const ROLE_STAGES = {
+  marketing: ['inquiry', 'quotation', 'confirmed', 'ready', 'delivered'],
   graphic_artist: ['layout_pattern'],
   purchasing: ['purchasing'],
   printing: ['printing'],
