@@ -33,6 +33,33 @@ function auth(req, res, next) {
 // Wrap async route handlers so rejected promises become 500s instead of hangs.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// Admin-only guard.
+function admin(req, res, next) {
+  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  next();
+}
+
+// Default per-role tab visibility (used until an admin customizes it).
+const DEFAULT_TAB_PERMS = {
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'tasks'],
+  marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
+  finance: ['projects', 'calendar', 'customers', 'reports', 'tasks'],
+  purchasing: ['calendar', 'tasks'],
+  printing: ['calendar', 'tasks'],
+  cutting_sewing: ['calendar', 'tasks'],
+  qa: ['calendar', 'tasks'],
+  graphic_artist: ['calendar', 'tasks'],
+};
+
+async function getPermissions() {
+  let stored = {};
+  try {
+    const row = await get("SELECT value FROM app_settings WHERE key = 'role_tabs'");
+    if (row) stored = JSON.parse(row.value);
+  } catch { /* table may not exist yet — fall back to defaults */ }
+  return { ...DEFAULT_TAB_PERMS, ...stored };
+}
+
 // ---------------------------------------------------------------------------
 // Helper: hydrate a project row with customer name + logs + tasks
 // ---------------------------------------------------------------------------
@@ -326,6 +353,78 @@ app.delete('/api/customers/:id', auth, wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/users', auth, wrap(async (req, res) => {
   res.json(await query('SELECT id, name, role FROM users ORDER BY name'));
+}));
+
+// ---------------------------------------------------------------------------
+// ADMIN — user management (includes PINs) + per-role tab permissions
+// ---------------------------------------------------------------------------
+app.get('/api/admin/users', auth, admin, wrap(async (req, res) => {
+  res.json(await query('SELECT id, name, role, pin, created_at FROM users ORDER BY id'));
+}));
+
+app.post('/api/admin/users', auth, admin, wrap(async (req, res) => {
+  const name = (req.body.name || '').trim();
+  const role = (req.body.role || '').trim();
+  const pin = String(req.body.pin || '').trim();
+  if (!name || !role || !pin) return res.status(400).json({ error: 'Name, role and PIN are required' });
+  const clash = await get('SELECT id FROM users WHERE pin = ?', [pin]);
+  if (clash) return res.status(409).json({ error: 'That PIN is already used by another user' });
+  const r = await run('INSERT INTO users (name, role, pin) VALUES (?, ?, ?) RETURNING id, name, role, pin', [name, role, pin]);
+  res.status(201).json(r.rows[0]);
+}));
+
+app.put('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
+  const existing = await get('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'User not found' });
+
+  const merged = { ...existing };
+  for (const f of ['name', 'role', 'pin']) if (f in req.body) merged[f] = String(req.body[f]).trim();
+  if (!merged.name || !merged.role || !merged.pin) return res.status(400).json({ error: 'Name, role and PIN are required' });
+
+  // PIN must stay unique across users.
+  const clash = await get('SELECT id FROM users WHERE pin = ? AND id <> ?', [merged.pin, req.params.id]);
+  if (clash) return res.status(409).json({ error: 'That PIN is already used by another user' });
+
+  // Don't allow demoting the last remaining admin.
+  if (existing.role === 'admin' && merged.role !== 'admin') {
+    const { n } = await get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'");
+    if (n <= 1) return res.status(400).json({ error: 'Cannot change the role of the only admin' });
+  }
+
+  await run('UPDATE users SET name = ?, role = ?, pin = ? WHERE id = ?', [merged.name, merged.role, merged.pin, req.params.id]);
+  res.json(await get('SELECT id, name, role, pin FROM users WHERE id = ?', [req.params.id]));
+}));
+
+app.delete('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
+  const existing = await get('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'User not found' });
+  if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+  if (existing.role === 'admin') {
+    const { n } = await get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'");
+    if (n <= 1) return res.status(400).json({ error: 'Cannot delete the only admin' });
+  }
+  // Keep referential history intact: null out this user's task/log references.
+  await run('UPDATE tasks SET assigned_to = NULL WHERE assigned_to = ?', [req.params.id]);
+  await run('UPDATE project_logs SET changed_by = NULL WHERE changed_by = ?', [req.params.id]);
+  await run('DELETE FROM users WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// Per-role tab visibility — public reference data used to build each nav.
+app.get('/api/permissions', wrap(async (req, res) => {
+  res.json(await getPermissions());
+}));
+
+app.put('/api/permissions', auth, admin, wrap(async (req, res) => {
+  const map = req.body && typeof req.body === 'object' ? req.body : {};
+  // Admin always retains every tab.
+  map.admin = DEFAULT_TAB_PERMS.admin;
+  await run(
+    `INSERT INTO app_settings (key, value) VALUES ('role_tabs', ?)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [JSON.stringify(map)]
+  );
+  res.json(await getPermissions());
 }));
 
 // ---------------------------------------------------------------------------

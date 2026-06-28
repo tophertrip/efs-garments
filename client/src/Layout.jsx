@@ -1,51 +1,31 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth';
-import { ROLE_LABELS } from './constants';
+import { ROLE_LABELS, TABS } from './constants';
+import { usePermissions } from './permissions';
 
-const adminNav = [
-  { to: '/', label: 'Dashboard', icon: '📊', end: true },
-  { to: '/projects', label: 'Projects', icon: '📁' },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
-  { to: '/customers', label: 'Customers', icon: '👥' },
-  { to: '/reports', label: 'Reports', icon: '📈' },
-  { to: '/tasks', label: 'Reminders', icon: '🔔' },
-];
-
-const teamNav = [
-  { to: '/', label: 'My Work', icon: '🧰', end: true },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
-  { to: '/tasks', label: 'My Tasks', icon: '🔔' },
-];
-
-// Finance sees their stage (Delivered) plus all projects & customers.
-const financeNav = [
-  { to: '/', label: 'My Work', icon: '🧰', end: true },
-  { to: '/projects', label: 'Projects', icon: '📁' },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
-  { to: '/customers', label: 'Customers', icon: '👥' },
-  { to: '/reports', label: 'Reports', icon: '📈' },
-  { to: '/tasks', label: 'My Tasks', icon: '🔔' },
-];
-
-// Marketing handles the sales stages, plus the dashboard, projects & customers.
-const marketingNav = [
-  { to: '/', label: 'My Work', icon: '🧰', end: true },
-  { to: '/dashboard', label: 'Dashboard', icon: '📊' },
-  { to: '/projects', label: 'Projects', icon: '📁' },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
-  { to: '/customers', label: 'Customers', icon: '👥' },
-  { to: '/tasks', label: 'My Tasks', icon: '🔔' },
-];
+// Build the sidebar nav from the role's permitted tabs.
+function buildNav(role, isAdmin, allowed) {
+  const nav = [
+    { to: '/', label: isAdmin ? 'Dashboard' : 'My Work', icon: isAdmin ? '📊' : '🧰', end: true },
+  ];
+  TABS.forEach((t) => {
+    if (t.key === 'dashboard' && isAdmin) return; // admin's home already IS the dashboard
+    if (isAdmin || allowed.includes(t.key)) {
+      const label = t.key === 'tasks' ? (isAdmin ? 'Reminders' : 'My Tasks') : t.label;
+      nav.push({ to: t.to, label, icon: t.icon });
+    }
+  });
+  if (isAdmin) nav.push({ to: '/users', label: 'User Management', icon: '🔐' });
+  return nav;
+}
 
 export default function Layout({ children }) {
   const { user, logout, isAdmin } = useAuth();
+  const { tabsFor } = usePermissions();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const nav = isAdmin ? adminNav
-    : user?.role === 'finance' ? financeNav
-    : user?.role === 'marketing' ? marketingNav
-    : teamNav;
+  const nav = buildNav(user?.role, isAdmin, tabsFor(user?.role));
 
   const initials = (user?.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('');
 

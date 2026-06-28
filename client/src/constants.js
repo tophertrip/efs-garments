@@ -26,6 +26,16 @@ export function prevStageKey(key) {
   return i > 0 ? STAGE_KEYS[i - 1] : null;
 }
 
+// Configurable navigation tabs (visibility controlled per role in User Management).
+export const TABS = [
+  { key: 'dashboard', label: 'Dashboard', icon: '📊', to: '/dashboard' },
+  { key: 'projects',  label: 'Projects',  icon: '📁', to: '/projects' },
+  { key: 'calendar',  label: 'Calendar',  icon: '📅', to: '/calendar' },
+  { key: 'customers', label: 'Customers', icon: '👥', to: '/customers' },
+  { key: 'reports',   label: 'Reports',   icon: '📈', to: '/reports' },
+  { key: 'tasks',     label: 'Tasks',     icon: '🔔', to: '/tasks' },
+];
+
 export const CATEGORIES = [
   { key: 'sportswear', label: 'Sportswear' },
   { key: 'activewear', label: 'Activewear' },

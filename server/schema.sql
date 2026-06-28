@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- App settings (key/value JSON) — e.g. per-role tab permissions.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
 -- Default product categories (idempotent).
 INSERT INTO categories (slug, name) VALUES
   ('sportswear', 'Sportswear'),
