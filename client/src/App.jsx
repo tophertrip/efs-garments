@@ -9,6 +9,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import Customers from './pages/Customers';
 import Tasks from './pages/Tasks';
 import Reports from './pages/Reports';
+import CalendarPage from './pages/CalendarPage';
 
 function Protected({ children, adminOnly, roles }) {
   const { user, isAdmin } = useAuth();
@@ -33,6 +34,7 @@ export default function App() {
       <Route path="/" element={<Protected><Home /></Protected>} />
       <Route path="/projects" element={<Protected><ProjectsList /></Protected>} />
       <Route path="/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
+      <Route path="/calendar" element={<Protected><CalendarPage /></Protected>} />
       <Route path="/customers" element={<Protected><Customers /></Protected>} />
       <Route path="/reports" element={<Protected roles={['admin', 'finance']}><Reports /></Protected>} />
       <Route path="/tasks" element={<Protected><Tasks /></Protected>} />

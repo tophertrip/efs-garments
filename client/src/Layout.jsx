@@ -6,6 +6,7 @@ import { ROLE_LABELS } from './constants';
 const adminNav = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
   { to: '/projects', label: 'Projects', icon: '📁' },
+  { to: '/calendar', label: 'Calendar', icon: '📅' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/reports', label: 'Reports', icon: '📈' },
   { to: '/tasks', label: 'Reminders', icon: '🔔' },
@@ -13,6 +14,7 @@ const adminNav = [
 
 const teamNav = [
   { to: '/', label: 'My Work', icon: '🧰', end: true },
+  { to: '/calendar', label: 'Calendar', icon: '📅' },
   { to: '/tasks', label: 'My Tasks', icon: '🔔' },
 ];
 
@@ -20,6 +22,7 @@ const teamNav = [
 const financeNav = [
   { to: '/', label: 'My Work', icon: '🧰', end: true },
   { to: '/projects', label: 'Projects', icon: '📁' },
+  { to: '/calendar', label: 'Calendar', icon: '📅' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/reports', label: 'Reports', icon: '📈' },
   { to: '/tasks', label: 'My Tasks', icon: '🔔' },
