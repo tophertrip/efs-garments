@@ -3,7 +3,7 @@ export const STAGES = [
   { key: 'inquiry',        label: 'Inquiry',            emoji: '📋', owner: 'admin',          color: 'bg-slate-100 text-slate-700 border-slate-300' },
   { key: 'quotation',      label: 'Quotation',          emoji: '💬', owner: 'admin',          color: 'bg-violet-100 text-violet-700 border-violet-300' },
   { key: 'confirmed',      label: 'Confirmed',          emoji: '✅', owner: 'admin',          color: 'bg-blue-100 text-blue-700 border-blue-300' },
-  { key: 'layout_pattern', label: 'Layout / Pattern',   emoji: '📐', owner: 'printing',       color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+  { key: 'layout_pattern', label: 'Layout / Pattern',   emoji: '📐', owner: 'graphic_artist', color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
   { key: 'purchasing',     label: 'Purchasing',         emoji: '🛒', owner: 'purchasing',     color: 'bg-amber-100 text-amber-700 border-amber-300' },
   { key: 'printing',       label: 'Printing',           emoji: '🖨️', owner: 'printing',       color: 'bg-orange-100 text-orange-700 border-orange-300' },
   { key: 'cutting_sewing', label: 'Cutting & Sewing',   emoji: '✂️', owner: 'cutting_sewing', color: 'bg-pink-100 text-pink-700 border-pink-300' },
@@ -36,6 +36,7 @@ export const ROLE_LABELS = {
   cutting_sewing: 'Cutting & Sewing',
   qa: 'Quality Check',
   finance: 'Finance',
+  graphic_artist: 'Graphic Artist',
 };
 
 // Currency formatting (PHP).
