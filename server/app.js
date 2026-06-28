@@ -476,8 +476,12 @@ app.get('/api/dashboard', auth, wrap(async (req, res) => {
   weekAhead.setDate(weekAhead.getDate() + 7);
   const weekStr = weekAhead.toISOString().slice(0, 10);
   const monthStart = today.slice(0, 8) + '01';
+  // Rolling 30-day window for "due this month" so it always covers "due this week".
+  const monthAhead = new Date();
+  monthAhead.setDate(monthAhead.getDate() + 30);
+  const monthStr = monthAhead.toISOString().slice(0, 10);
 
-  const activeStatuses = "('inquiry','quotation','confirmed','purchasing','printing','cutting_sewing','qa','ready')";
+  const activeStatuses = "('inquiry','quotation','confirmed','layout_pattern','purchasing','printing','cutting_sewing','qa','ready')";
 
   const { n: totalActive } = await get(
     `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ${activeStatuses}`
@@ -493,12 +497,22 @@ app.get('/api/dashboard', auth, wrap(async (req, res) => {
     `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ('delivered','paid') AND updated_at >= ?`, [monthStart]
   );
 
+  // Total pieces / units due (sum of quantity) among active orders.
+  const { n: unitsDueThisWeek } = await get(
+    `SELECT COALESCE(SUM(quantity), 0)::int AS n FROM projects
+     WHERE status IN ${activeStatuses} AND target_date >= ? AND target_date <= ?`, [today, weekStr]
+  );
+  const { n: unitsDueThisMonth } = await get(
+    `SELECT COALESCE(SUM(quantity), 0)::int AS n FROM projects
+     WHERE status IN ${activeStatuses} AND target_date >= ? AND target_date <= ?`, [today, monthStr]
+  );
+
   const byStageRows = await query('SELECT status, COUNT(*)::int AS n FROM projects GROUP BY status');
   const byStage = {};
   STAGE_KEYS.forEach((k) => { byStage[k] = 0; });
   byStageRows.forEach((r) => { byStage[r.status] = r.n; });
 
-  res.json({ totalActive, dueThisWeek, overdue, completedThisMonth, byStage });
+  res.json({ totalActive, dueThisWeek, overdue, completedThisMonth, unitsDueThisWeek, unitsDueThisMonth, byStage });
 }));
 
 // ---------------------------------------------------------------------------

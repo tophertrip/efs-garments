@@ -11,6 +11,7 @@ function StatCard({ label, value, tone }) {
     gold: 'bg-gold text-navy',
     red: 'bg-red-50 text-red-700 border border-red-200',
     green: 'bg-green-50 text-green-700 border border-green-200',
+    indigo: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
   };
   return (
     <div className={`rounded-xl p-5 ${tones[tone]}`}>
@@ -73,11 +74,13 @@ export default function Dashboard() {
         <Button variant="gold" onClick={() => setShowForm(true)}>+ New Project</Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <StatCard label="Active Projects" value={stats.totalActive} tone="navy" />
         <StatCard label="Due This Week" value={stats.dueThisWeek} tone="gold" />
         <StatCard label="Overdue" value={stats.overdue} tone="red" />
         <StatCard label="Completed This Month" value={stats.completedThisMonth} tone="green" />
+        <StatCard label="Pieces Due This Week" value={Number(stats.unitsDueThisWeek || 0).toLocaleString()} tone="indigo" />
+        <StatCard label="Pieces Due This Month" value={Number(stats.unitsDueThisMonth || 0).toLocaleString()} tone="indigo" />
       </div>
 
       <h2 className="text-lg font-bold text-navy mb-3">Production Pipeline</h2>
