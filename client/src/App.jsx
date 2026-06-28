@@ -24,10 +24,10 @@ function Protected({ children, adminOnly, tab }) {
   return <Layout>{children}</Layout>;
 }
 
-// Home route depends on role: admin → Dashboard, everyone else → TeamView.
+// Home route depends on role: admin (owner) → Owners Dashboard, everyone else → TeamView.
 function Home() {
   const { isAdmin } = useAuth();
-  return isAdmin ? <Dashboard /> : <TeamView />;
+  return isAdmin ? <OwnerDashboard /> : <TeamView />;
 }
 
 export default function App() {
@@ -36,7 +36,6 @@ export default function App() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<Protected><Home /></Protected>} />
-      <Route path="/owners" element={<Protected adminOnly><OwnerDashboard /></Protected>} />
       <Route path="/dashboard" element={<Protected tab="dashboard"><Dashboard /></Protected>} />
       <Route path="/projects" element={<Protected tab="projects"><ProjectsList /></Protected>} />
       <Route path="/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
