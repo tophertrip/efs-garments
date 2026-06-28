@@ -240,7 +240,8 @@ app.put('/api/projects/:id/status', auth, wrap(async (req, res) => {
     VALUES (?, ?, ?, ?, ?)
   `, [req.params.id, from, target, req.user.id, req.body.notes || null]);
 
-  await createStageTask(project, target);
+  // Skip auto-task creation when this is a "return to previous stage" (an undo).
+  if (!req.body.skipTask) await createStageTask(project, target);
 
   res.json(await getProjectFull(req.params.id));
 }));

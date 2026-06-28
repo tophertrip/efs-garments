@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import {
-  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, peso, fmtDate, fmtDateTime,
+  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, prevStageKey, peso, fmtDate, fmtDateTime,
 } from '../constants';
 import {
   Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Modal, Field, Input, Textarea, Select, ConfirmDialog,
@@ -86,6 +86,7 @@ export default function ProjectDetail() {
   const [project, setProject] = useState(null);
   const [users, setUsers] = useState([]);
   const [advancing, setAdvancing] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [showTask, setShowTask] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -100,6 +101,7 @@ export default function ProjectDetail() {
   if (!project) return <Spinner />;
 
   const next = nextStageKey(project.status);
+  const prev = prevStageKey(project.status);
 
   async function advance() {
     if (!next) return;
@@ -108,6 +110,19 @@ export default function ProjectDetail() {
       await api.put(`/projects/${id}/status`, {});
       await load();
     } finally { setAdvancing(false); }
+  }
+
+  async function goBack() {
+    if (!prev) return;
+    setReturning(true);
+    try {
+      await api.put(`/projects/${id}/status`, {
+        status: prev,
+        skipTask: true,
+        notes: `Returned to ${STAGE_MAP[prev].label}`,
+      });
+      await load();
+    } finally { setReturning(false); }
   }
 
   async function toggleTask(t) {
@@ -143,6 +158,12 @@ export default function ProjectDetail() {
           {isAdmin && (
             <Button variant="outline" onClick={() => setShowDelete(true)}
               className="text-red-600 border-red-200 hover:bg-red-50">🗑 Delete</Button>
+          )}
+          {prev && (
+            <Button variant="outline" onClick={goBack} disabled={returning}
+              title="Undo — move this job order back one stage">
+              {returning ? 'Returning…' : `← Return to ${STAGE_MAP[prev].label}`}
+            </Button>
           )}
           {next && (
             <Button variant="gold" onClick={advance} disabled={advancing} className="text-base px-6 py-3">

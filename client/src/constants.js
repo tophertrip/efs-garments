@@ -21,6 +21,11 @@ export function nextStageKey(key) {
   return i >= 0 && i < STAGE_KEYS.length - 1 ? STAGE_KEYS[i + 1] : null;
 }
 
+export function prevStageKey(key) {
+  const i = STAGE_KEYS.indexOf(key);
+  return i > 0 ? STAGE_KEYS[i - 1] : null;
+}
+
 export const CATEGORIES = [
   { key: 'sportswear', label: 'Sportswear' },
   { key: 'activewear', label: 'Activewear' },
