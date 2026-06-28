@@ -30,10 +30,7 @@ function MonthlyBars({ data, valueKey, format, barClass, currentMonth }) {
           const h = Math.round((v / max) * 100);
           const isCur = d.month === currentMonth;
           return (
-            <div key={d.month} className="flex-1 flex flex-col items-center justify-end h-full group">
-              <div className="text-[10px] text-gray-500 mb-1 opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
-                {format(v)}
-              </div>
+            <div key={d.month} className="flex-1 min-w-0 h-full flex items-end">
               <div
                 className={`w-full rounded-t ${barClass} ${isCur ? 'ring-2 ring-gold ring-offset-1' : ''}`}
                 style={{ height: `${v ? Math.max(h, 2) : 0}%` }}
@@ -45,7 +42,7 @@ function MonthlyBars({ data, valueKey, format, barClass, currentMonth }) {
       </div>
       <div className="flex gap-1 sm:gap-2 mt-1">
         {data.map((d) => (
-          <div key={d.month} className="flex-1 text-center text-[10px] text-gray-400">{d.label}</div>
+          <div key={d.month} className="flex-1 min-w-0 text-center text-[10px] text-gray-400">{d.label}</div>
         ))}
       </div>
     </div>
