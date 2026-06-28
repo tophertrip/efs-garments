@@ -17,7 +17,7 @@ async function seed() {
   // --- Users -------------------------------------------------------------
   const users = {};
   const userRows = [
-    ['Admin Long', 'admin', '1234'],
+    ['Admin Long', 'admin', '0721'],
     ['Purchasing Bee', 'purchasing', '2222'],
     ['Printing Ton', 'printing', '3333'],
     ['Ate Sew', 'cutting_sewing', '5555'],
