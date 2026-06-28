@@ -516,6 +516,51 @@ app.get('/api/dashboard', auth, wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// OWNER DASHBOARD — executive year/month totals + monthly series (by order date)
+// ---------------------------------------------------------------------------
+app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
+  const year = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1; // 1-12
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+
+  // One pass: per-month sales (revenue), project count, and pieces (units).
+  const rows = await query(`
+    SELECT EXTRACT(MONTH FROM created_at::date)::int AS m,
+           COUNT(*)::int AS projects,
+           COALESCE(SUM(quantity), 0)::int AS pieces,
+           COALESCE(SUM(total_amount), 0)::float AS sales
+    FROM projects
+    WHERE created_at::date >= ?::date AND created_at::date <= ?::date
+    GROUP BY m
+  `, [yearStart, yearEnd]);
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const byMonth = {};
+  rows.forEach((r) => { byMonth[r.m] = r; });
+  const monthly = MONTHS.map((label, i) => {
+    const r = byMonth[i + 1] || {};
+    return { month: i + 1, label, sales: r.sales || 0, projects: r.projects || 0, pieces: r.pieces || 0 };
+  });
+
+  const sum = (key) => monthly.reduce((a, m) => a + m[key], 0);
+  const cur = monthly[currentMonth - 1] || { sales: 0, projects: 0, pieces: 0 };
+
+  res.json({
+    year,
+    summary: {
+      salesYear: sum('sales'),
+      salesMonth: cur.sales,
+      projectsYear: sum('projects'),
+      projectsMonth: cur.projects,
+      piecesYear: sum('pieces'),
+      piecesMonth: cur.pieces,
+    },
+    monthly,
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // REPORTS — flexible aggregation grouped by time period / product / customer …
 // ---------------------------------------------------------------------------
 app.get('/api/reports', auth, wrap(async (req, res) => {

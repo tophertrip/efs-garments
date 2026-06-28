@@ -6,9 +6,9 @@ import { usePermissions } from './permissions';
 
 // Build the sidebar nav from the role's permitted tabs.
 function buildNav(role, isAdmin, allowed) {
-  const nav = [
-    { to: '/', label: isAdmin ? 'Dashboard' : 'My Work', icon: isAdmin ? '📊' : '🧰', end: true },
-  ];
+  const nav = [];
+  if (isAdmin) nav.push({ to: '/owners', label: 'Owners Dashboard', icon: '👑' });
+  nav.push({ to: '/', label: isAdmin ? 'Dashboard' : 'My Work', icon: isAdmin ? '📊' : '🧰', end: true });
   TABS.forEach((t) => {
     if (t.key === 'dashboard' && isAdmin) return; // admin's home already IS the dashboard
     if (isAdmin || allowed.includes(t.key)) {
