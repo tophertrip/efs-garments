@@ -86,7 +86,7 @@ export default function Dashboard() {
       <h2 className="text-lg font-bold text-navy mb-3">Production Pipeline</h2>
       <div className="kanban-scroll overflow-x-auto pb-4">
         <div className="flex gap-4" style={{ minWidth: 'min-content' }}>
-          {STAGES.map((stage) => {
+          {STAGES.filter((s) => s.key !== 'paid').map((stage) => {
             const items = byStage(stage.key);
             return (
               <div key={stage.key} className="w-64 flex-shrink-0">
