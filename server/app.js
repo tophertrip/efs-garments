@@ -9,7 +9,7 @@ const { STAGES, STAGE_KEYS, nextStage, stageMeta } = require('./stages');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // large enough for full-database restores
 
 // ---------------------------------------------------------------------------
 // Auth helpers (simple token = base64(JSON) — fine for an in-house MVP)
@@ -861,6 +861,107 @@ app.post('/api/inventory/txns', auth, wrap(async (req, res) => {
 app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => {
   await run('DELETE FROM inventory_txns WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Full-database backup / restore / reset (admin only).
+// Backup is a JSON snapshot of every table; restore replaces all data with a
+// snapshot; reset clears operational data but keeps user accounts + settings.
+// ---------------------------------------------------------------------------
+// Tables in foreign-key dependency order (parents first). Insert in this order
+// on restore; delete in reverse.
+const BACKUP_TABLES = [
+  'users', 'customers', 'categories', 'projects',
+  'project_logs', 'tasks', 'payments', 'inventory_items', 'inventory_txns', 'app_settings',
+];
+// Tables whose id sequence must be re-synced after a restore.
+const SERIAL_TABLES = [
+  'users', 'customers', 'categories', 'projects',
+  'project_logs', 'tasks', 'payments', 'inventory_items', 'inventory_txns',
+];
+// Operational data cleared by a reset (reverse dependency order). Users,
+// app_settings and categories are intentionally preserved so login + role
+// permissions keep working after a reset.
+const RESET_TABLES = [
+  'inventory_txns', 'inventory_items', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
+];
+
+// Download a full snapshot of the database.
+app.get('/api/admin/backup', auth, admin, wrap(async (req, res) => {
+  const tables = {};
+  for (const t of BACKUP_TABLES) {
+    tables[t] = await query(`SELECT * FROM ${t} ORDER BY ${t === 'app_settings' ? 'key' : 'id'}`);
+  }
+  const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]));
+  res.json({ app: 'efs-garments', version: 1, exported_at: new Date().toISOString(), counts, tables });
+}));
+
+// Replace ALL data with the contents of a backup file.
+app.post('/api/admin/restore', auth, admin, wrap(async (req, res) => {
+  const backup = req.body;
+  if (!backup || typeof backup !== 'object' || !backup.tables || typeof backup.tables !== 'object') {
+    return res.status(400).json({ error: 'Invalid backup file (missing "tables").' });
+  }
+  const data = backup.tables;
+  // Only accept tables we know about; ignore anything unexpected.
+  const unknown = Object.keys(data).filter((t) => !BACKUP_TABLES.includes(t));
+  if (unknown.length) return res.status(400).json({ error: `Unknown table(s) in backup: ${unknown.join(', ')}` });
+
+  const client = await pool.connect();
+  const counts = {};
+  try {
+    await client.query('BEGIN');
+    // Clear everything (reverse dependency order).
+    for (const t of [...BACKUP_TABLES].reverse()) await client.query(`DELETE FROM ${t}`);
+    // Re-insert (dependency order).
+    for (const t of BACKUP_TABLES) {
+      const rows = Array.isArray(data[t]) ? data[t] : [];
+      counts[t] = rows.length;
+      for (const row of rows) {
+        const cols = Object.keys(row);
+        if (!cols.length) continue;
+        const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+        await client.query(
+          `INSERT INTO ${t} (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`,
+          cols.map((c) => row[c])
+        );
+      }
+    }
+    // Re-sync id sequences so future inserts don't collide.
+    for (const t of SERIAL_TABLES) {
+      await client.query(
+        `SELECT setval(pg_get_serial_sequence('${t}', 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM ${t}), 1))`
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('Restore failed:', e);
+    return res.status(500).json({ error: `Restore failed: ${e.message}` });
+  } finally {
+    client.release();
+  }
+  res.json({ ok: true, restored: counts });
+}));
+
+// Wipe operational data to start fresh (keeps users + settings + categories).
+app.post('/api/admin/reset', auth, admin, wrap(async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const t of RESET_TABLES) await client.query(`DELETE FROM ${t}`);
+    for (const t of RESET_TABLES) {
+      await client.query(`SELECT setval(pg_get_serial_sequence('${t}', 'id'), 1, false)`);
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('Reset failed:', e);
+    return res.status(500).json({ error: `Reset failed: ${e.message}` });
+  } finally {
+    client.release();
+  }
+  res.json({ ok: true, cleared: RESET_TABLES });
 }));
 
 // ---------------------------------------------------------------------------

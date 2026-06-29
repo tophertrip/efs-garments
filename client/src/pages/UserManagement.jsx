@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { ROLE_LABELS, TABS } from '../constants';
 import { usePermissions } from '../permissions';
@@ -102,6 +102,71 @@ export default function UserManagement() {
     } catch (e) { setDelErr(e.message); } finally { setDelBusy(false); }
   }
 
+  // --- Data: backup / restore / reset --------------------------------------
+  const fileRef = useRef(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState(null); // { data, counts, fileName }
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreErr, setRestoreErr] = useState('');
+  const [dataMsg, setDataMsg] = useState('');
+  const [showReset, setShowReset] = useState(false);
+  const [resetText, setResetText] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetErr, setResetErr] = useState('');
+
+  async function exportBackup() {
+    setBackupBusy(true); setDataMsg(''); setRestoreErr('');
+    try {
+      const data = await api.get('/admin/backup');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `efs-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const total = Object.values(data.counts || {}).reduce((s, n) => s + n, 0);
+      setDataMsg(`Exported a backup of ${total} records. Keep this file safe — you can re-upload it later to restore.`);
+    } catch (e) { setRestoreErr(e.message); } finally { setBackupBusy(false); }
+  }
+
+  function onPickFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    setRestoreErr(''); setDataMsg('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || typeof parsed !== 'object' || !parsed.tables) throw new Error('Not a valid EFS backup file.');
+        setPendingRestore({ data: parsed, counts: parsed.counts || {}, fileName: file.name });
+      } catch (err) { setRestoreErr(`Could not read backup file: ${err.message}`); }
+    };
+    reader.readAsText(file);
+  }
+
+  async function confirmRestore() {
+    setRestoreBusy(true); setRestoreErr('');
+    try {
+      const res = await api.post('/admin/restore', pendingRestore.data);
+      const total = Object.values(res.restored || {}).reduce((s, n) => s + n, 0);
+      setPendingRestore(null);
+      setDataMsg(`Database restored from backup — ${total} records loaded.`);
+      await loadUsers(); await reloadPerms();
+    } catch (e) { setRestoreErr(e.message); } finally { setRestoreBusy(false); }
+  }
+
+  async function confirmReset() {
+    setResetBusy(true); setResetErr('');
+    try {
+      await api.post('/admin/reset', {});
+      setShowReset(false); setResetText('');
+      setDataMsg('Database reset — all projects, customers, payments and inventory were cleared. User accounts were kept.');
+      await loadUsers();
+    } catch (e) { setResetErr(e.message); } finally { setResetBusy(false); }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -195,6 +260,81 @@ export default function UserManagement() {
           </table>
         </div>
       </Card>
+
+      {/* Data & Backup */}
+      <Card className="overflow-hidden mt-8">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h2 className="font-bold text-navy">Data & Backup</h2>
+          <p className="text-xs text-gray-500">Export the whole database to a file, restore it later, or reset everything to start fresh.</p>
+        </div>
+        <div className="p-4 space-y-4">
+          {dataMsg && <div className="bg-green-50 text-green-700 text-sm rounded-lg px-3 py-2">{dataMsg}</div>}
+          {restoreErr && !pendingRestore && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{restoreErr}</div>}
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-xl p-4 flex flex-col">
+              <div className="text-2xl mb-1">⬇️</div>
+              <h3 className="font-semibold text-navy">Export backup</h3>
+              <p className="text-xs text-gray-500 mb-3 flex-1">Download a full snapshot (.json) of every table — users, customers, projects, payments, inventory and settings.</p>
+              <Button variant="outline" onClick={exportBackup} disabled={backupBusy}>{backupBusy ? 'Preparing…' : '⬇ Export database'}</Button>
+            </div>
+            <div className="border border-gray-200 rounded-xl p-4 flex flex-col">
+              <div className="text-2xl mb-1">⬆️</div>
+              <h3 className="font-semibold text-navy">Restore backup</h3>
+              <p className="text-xs text-gray-500 mb-3 flex-1">Upload a previously exported .json file to return to that snapshot. This <strong>replaces all current data</strong>.</p>
+              <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={onPickFile} />
+              <Button variant="outline" onClick={() => fileRef.current?.click()}>⬆ Choose backup file…</Button>
+            </div>
+            <div className="border border-red-200 bg-red-50/40 rounded-xl p-4 flex flex-col">
+              <div className="text-2xl mb-1">🧨</div>
+              <h3 className="font-semibold text-red-700">Reset database</h3>
+              <p className="text-xs text-gray-500 mb-3 flex-1">Clear all projects, customers, payments and inventory to start new. User accounts and role settings are kept.</p>
+              <Button variant="outline" className="!border-red-300 !text-red-700 hover:!bg-red-50" onClick={() => { setResetErr(''); setResetText(''); setShowReset(true); }}>Reset to start new</Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {pendingRestore && (
+        <Modal title="Restore from backup?" onClose={() => setPendingRestore(null)}>
+          <div className="space-y-3">
+            {restoreErr && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{restoreErr}</div>}
+            <div className="bg-amber-50 text-amber-800 text-sm rounded-lg px-3 py-2">
+              This will <strong>delete all current data</strong> and replace it with <strong>{pendingRestore.fileName}</strong>. This cannot be undone.
+            </div>
+            <div className="text-sm text-gray-600">
+              <div className="font-medium mb-1">Backup contents:</div>
+              <ul className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-xs">
+                {Object.entries(pendingRestore.counts).map(([k, v]) => (
+                  <li key={k} className="flex justify-between border-b border-gray-100 py-0.5"><span className="text-gray-500">{k}</span><span className="font-mono text-navy">{v}</span></li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setPendingRestore(null)}>Cancel</Button>
+              <Button variant="gold" disabled={restoreBusy} onClick={confirmRestore}>{restoreBusy ? 'Restoring…' : 'Replace all data'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showReset && (
+        <Modal title="Reset database" onClose={() => setShowReset(false)}>
+          <div className="space-y-3">
+            {resetErr && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{resetErr}</div>}
+            <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">
+              This permanently clears <strong>all projects, customers, payments and inventory</strong>. User accounts and role permissions are kept so you can still log in. This cannot be undone.
+            </div>
+            <p className="text-xs text-gray-500">Tip: export a backup first so you can restore this data later if needed.</p>
+            <Field label='Type RESET to confirm'>
+              <Input value={resetText} onChange={(e) => setResetText(e.target.value)} placeholder="RESET" />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowReset(false)}>Cancel</Button>
+              <Button variant="danger" disabled={resetBusy || resetText !== 'RESET'} onClick={confirmReset}>{resetBusy ? 'Resetting…' : 'Reset database'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {showAdd && <UserModal onClose={() => setShowAdd(false)} onSaved={loadUsers} />}
       {editUser && <UserModal user={editUser} onClose={() => setEditUser(null)} onSaved={loadUsers} />}
