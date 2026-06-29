@@ -128,6 +128,14 @@ function TxnModal({ type, items, projects, presetItemId, onClose, onSaved }) {
 
 const TYPE_BADGE = { in: 'bg-emerald-100 text-emerald-700', out: 'bg-orange-100 text-orange-700' };
 
+function downloadCsv(filename, rows) {
+  const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Inventory() {
   const { user } = useAuth();
   const canManage = canManageRoles.includes(user.role);
@@ -162,6 +170,25 @@ export default function Inventory() {
     finally { setDelBusy(false); }
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+  function exportSummaryCsv() {
+    const headers = ['Item', 'Category', 'Unit', ...SIZES, 'Total', 'Low-stock threshold'];
+    const rows = items.map((it) => [
+      it.name, it.category, it.unit,
+      ...SIZES.map((s) => (it.tracks_size ? (it.sizes[s] || 0) : '')),
+      it.total, it.low_stock_threshold,
+    ]);
+    downloadCsv(`efs-inventory-${today}.csv`, [headers, ...rows]);
+  }
+  function exportTxnsCsv() {
+    const headers = ['Date', 'Type', 'Item', 'Category', 'Size', 'Qty', 'Supplier', 'Job Order', 'Notes', 'Recorded By'];
+    const rows = txns.map((t) => [
+      t.txn_date || '', t.type.toUpperCase(), t.item_name, t.category, t.size || '',
+      (t.type === 'in' ? '+' : '-') + t.qty, t.supplier || '', t.job_order_number || '', t.notes || '', t.recorded_by_name || '',
+    ]);
+    downloadCsv(`efs-inventory-transactions-${today}.csv`, [headers, ...rows]);
+  }
+
   if (loading) return <Spinner />;
 
   const shown = cat ? items.filter((i) => i.category === cat) : items;
@@ -174,7 +201,9 @@ export default function Inventory() {
           <h1 className="text-2xl font-extrabold text-navy">Inventory</h1>
           <p className="text-gray-500 text-sm">Stock on hand · {items.length} item{items.length !== 1 ? 's' : ''}</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap print:hidden">
+          <Button variant="outline" onClick={exportSummaryCsv} disabled={!items.length}>⬇ Export CSV</Button>
+          <Button variant="outline" onClick={() => window.print()}>🖨️ Print / PDF</Button>
           <Button variant="outline" onClick={() => setModal('in')}>⬇ Log IN</Button>
           <Button variant="outline" onClick={() => setModal('out')}>⬆ Log OUT</Button>
           {canManage && <Button variant="gold" onClick={() => setModal('item')}>+ New Item</Button>}
@@ -182,7 +211,7 @@ export default function Inventory() {
       </div>
 
       {/* Category filter */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4 print:hidden">
         {['', ...INVENTORY_CATEGORIES].map((c) => (
           <button key={c || 'all'} onClick={() => setCat(c)}
             className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${cat === c ? 'bg-navy text-white border-navy' : 'bg-white text-gray-600 border-gray-300 hover:border-navy'}`}>
@@ -201,7 +230,7 @@ export default function Inventory() {
                 <th className="px-3 py-3 font-semibold">Category</th>
                 {SIZES.map((s) => <th key={s} className="px-2 py-3 font-semibold text-center">{s}</th>)}
                 <th className="px-3 py-3 font-semibold text-center">Total</th>
-                {canManage && <th className="px-2 py-3" />}
+                {canManage && <th className="px-2 py-3 print:hidden" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -217,7 +246,7 @@ export default function Inventory() {
                   ))}
                   <td className={`px-3 py-3 text-center font-bold ${it.total <= it.low_stock_threshold ? 'text-red-600' : 'text-navy'}`}>{it.total}</td>
                   {canManage && (
-                    <td className="px-2 py-3 whitespace-nowrap text-right">
+                    <td className="px-2 py-3 whitespace-nowrap text-right print:hidden">
                       <button onClick={() => setEditItem(it)} className="text-xs text-navy hover:underline">✏️</button>
                       <button onClick={() => setDelItem(it)} className="text-xs text-red-600 hover:underline ml-2">🗑</button>
                     </td>
@@ -231,8 +260,11 @@ export default function Inventory() {
       </Card>
 
       {/* Transaction history */}
-      <h2 className="text-lg font-bold text-navy mb-3">Transaction History</h2>
-      <Card className="p-4 mb-3">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-navy">Transaction History</h2>
+        <Button variant="outline" onClick={exportTxnsCsv} disabled={!txns.length} className="print:hidden">⬇ Export CSV</Button>
+      </div>
+      <Card className="p-4 mb-3 print:hidden">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">From</span><Input type="date" value={tf.from} onChange={(e) => setTf({ ...tf, from: e.target.value })} /></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">To</span><Input type="date" value={tf.to} onChange={(e) => setTf({ ...tf, to: e.target.value })} /></label>
@@ -256,7 +288,7 @@ export default function Inventory() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
-              <tr>{['Date', 'Type', 'Item', 'Size', 'Qty', 'Supplier / Job Order', 'Recorded By'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th />}</tr>
+              <tr>{['Date', 'Type', 'Item', 'Size', 'Qty', 'Supplier / Job Order', 'Recorded By'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th className="print:hidden" />}</tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {txns.length === 0 && <tr><td colSpan={8} className="text-center text-gray-400 py-10">No transactions match your filters.</td></tr>}
@@ -269,7 +301,7 @@ export default function Inventory() {
                   <td className={`px-4 py-3 font-semibold ${t.type === 'in' ? 'text-emerald-700' : 'text-orange-700'}`}>{t.type === 'in' ? '+' : '−'}{t.qty}</td>
                   <td className="px-4 py-3 text-gray-600">{t.type === 'in' ? (t.supplier || '—') : (t.job_order_number || '—')}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.recorded_by_name || '—'}</td>
-                  {canManage && <td className="px-2 py-3 text-right"><button onClick={async () => { await api.del(`/inventory/txns/${t.id}`); refresh(); }} className="text-xs text-red-600 hover:underline">🗑</button></td>}
+                  {canManage && <td className="px-2 py-3 text-right print:hidden"><button onClick={async () => { await api.del(`/inventory/txns/${t.id}`); refresh(); }} className="text-xs text-red-600 hover:underline">🗑</button></td>}
                 </tr>
               ))}
             </tbody>
