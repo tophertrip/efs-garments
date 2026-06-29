@@ -1,6 +1,6 @@
 # EFS Garments — Production Tracker (MVP)
 
-An in-house web app for **EFS Garments Manufacturing** (Cebu, Philippines) that replaces
+An in-house web app for **EFS Garments Manufacturing** (Philippines) that replaces
 manual Google-Sheets tracking and gives the owner live visibility into every job order as
 it moves through the production pipeline.
 
