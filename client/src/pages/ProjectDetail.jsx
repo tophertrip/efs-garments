@@ -172,7 +172,7 @@ export default function ProjectDetail() {
               {advancing ? 'Advancing…' : `Advance to ${STAGE_MAP[next].emoji} ${STAGE_MAP[next].label} →`}
             </Button>
           )}
-          {!next && <span className="px-4 py-2 rounded-lg bg-emerald-100 text-emerald-800 font-semibold text-sm">💰 Paid — complete</span>}
+          {!next && <span className="px-4 py-2 rounded-lg bg-emerald-100 text-emerald-800 font-semibold text-sm">💰 For Payment — final stage</span>}
         </div>
       </div>
 
