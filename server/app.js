@@ -41,9 +41,9 @@ function admin(req, res, next) {
 
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
-  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'tasks'],
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
   marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
-  finance: ['projects', 'calendar', 'customers', 'reports', 'tasks'],
+  finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
   purchasing: ['calendar', 'tasks'],
   printing: ['calendar', 'tasks'],
   cutting_sewing: ['calendar', 'tasks'],
@@ -86,6 +86,16 @@ async function getProjectFull(id) {
     WHERE t.project_id = ?
     ORDER BY t.is_done ASC, t.due_date ASC
   `, [id]);
+  project.payments = await query(`
+    SELECT pay.id, pay.amount::float AS amount, pay.method, pay.reference, pay.paid_on,
+           pay.created_at, u.name AS recorded_by_name
+    FROM payments pay
+    LEFT JOIN users u ON u.id = pay.recorded_by
+    WHERE pay.project_id = ?
+    ORDER BY pay.paid_on DESC NULLS LAST, pay.id DESC
+  `, [id]);
+  project.total_paid = project.payments.reduce((a, p) => a + (p.amount || 0), 0);
+  project.balance = (Number(project.total_amount) || 0) - project.total_paid;
   return project;
 }
 
@@ -645,6 +655,113 @@ app.get('/api/reports', auth, wrap(async (req, res) => {
   summary.avgOrderValue = summary.orders ? summary.revenue / summary.orders : 0;
 
   res.json({ groupBy, dateField, from: from || null, to: to || null, status, chronological, summary, rows });
+}));
+
+// ---------------------------------------------------------------------------
+// PAYMENTS — partials/installments per project; balances & collection summary
+// ---------------------------------------------------------------------------
+// "Confirmed" sales = orders past the quotation stage.
+const NOT_CONFIRMED = "('inquiry','quotation')";
+
+function paymentStatus(total, paid) {
+  if (paid <= 0) return 'unpaid';
+  if (total - paid > 0.009) return 'partial';
+  return 'paid';
+}
+
+async function projectBalances() {
+  const rows = await query(`
+    SELECT p.id, p.job_order_number, p.project_name,
+           p.total_amount::float AS total_amount, p.status,
+           c.name AS customer_name, c.company AS customer_company,
+           COALESCE(pay.paid, 0)::float AS total_paid
+    FROM projects p
+    LEFT JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN (SELECT project_id, SUM(amount) AS paid FROM payments GROUP BY project_id) pay ON pay.project_id = p.id
+    WHERE p.status NOT IN ${NOT_CONFIRMED}
+    ORDER BY p.job_order_number DESC
+  `);
+  return rows.map((r) => {
+    const balance = (r.total_amount || 0) - (r.total_paid || 0);
+    return { ...r, balance, payment_status: paymentStatus(r.total_amount || 0, r.total_paid || 0) };
+  });
+}
+
+// Per-project balance table.
+app.get('/api/payments/projects', auth, wrap(async (req, res) => {
+  res.json(await projectBalances());
+}));
+
+// Sales / collection summary.
+app.get('/api/payments/summary', auth, wrap(async (req, res) => {
+  const bal = await projectBalances();
+  const totalSales = bal.reduce((a, p) => a + (p.total_amount || 0), 0);
+  const totalCollected = bal.reduce((a, p) => a + (p.total_paid || 0), 0);
+  const counts = { paid: 0, partial: 0, unpaid: 0 };
+  bal.forEach((p) => { counts[p.payment_status] += 1; });
+  res.json({
+    totalSales,
+    totalCollected,
+    totalOutstanding: totalSales - totalCollected,
+    fullyPaid: counts.paid,
+    partiallyPaid: counts.partial,
+    unpaid: counts.unpaid,
+  });
+}));
+
+// Transaction history (filters: from, to, method, project_id, status).
+app.get('/api/payments', auth, wrap(async (req, res) => {
+  const { from, to, method, project_id, status } = req.query;
+  const where = [];
+  const params = [];
+  if (from) { where.push('pay.paid_on >= ?'); params.push(from); }
+  if (to) { where.push('pay.paid_on <= ?'); params.push(to); }
+  if (method) { where.push('pay.method = ?'); params.push(method); }
+  if (project_id) { where.push('pay.project_id = ?'); params.push(project_id); }
+
+  let rows = await query(`
+    SELECT pay.id, pay.paid_on, pay.amount::float AS amount, pay.method, pay.reference, pay.created_at,
+           p.id AS project_id, p.job_order_number, p.project_name,
+           c.name AS customer_name, c.company AS customer_company,
+           u.name AS recorded_by_name
+    FROM payments pay
+    LEFT JOIN projects p ON p.id = pay.project_id
+    LEFT JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN users u ON u.id = pay.recorded_by
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY pay.paid_on DESC NULLS LAST, pay.id DESC
+  `, params);
+
+  // Filter by the project's payment status, if requested.
+  if (status && ['unpaid', 'partial', 'paid'].includes(status)) {
+    const bal = await projectBalances();
+    const ok = new Set(bal.filter((b) => b.payment_status === status).map((b) => b.id));
+    rows = rows.filter((r) => ok.has(r.project_id));
+  }
+  res.json(rows);
+}));
+
+// Record a payment.
+app.post('/api/payments', auth, wrap(async (req, res) => {
+  const { project_id, amount, method, reference, paid_on } = req.body;
+  const amt = Number(amount);
+  if (!project_id) return res.status(400).json({ error: 'Project is required' });
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
+  const project = await get('SELECT id FROM projects WHERE id = ?', [project_id]);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const today = new Date().toISOString().slice(0, 10);
+  const inserted = await run(`
+    INSERT INTO payments (project_id, amount, method, reference, paid_on, recorded_by)
+    VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+  `, [project_id, amt, method || 'cash', reference || null, paid_on || today, req.user.id]);
+  res.status(201).json({ id: inserted.rows[0].id });
+}));
+
+// Delete a payment (admin/finance — correction).
+app.delete('/api/payments/:id', auth, wrap(async (req, res) => {
+  if (!['admin', 'finance'].includes(req.user.role)) return res.status(403).json({ error: 'Only admin or finance can delete payments' });
+  await run('DELETE FROM payments WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

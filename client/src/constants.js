@@ -34,8 +34,18 @@ export const TABS = [
   { key: 'calendar',  label: 'Calendar',  icon: '📅', to: '/calendar' },
   { key: 'customers', label: 'Customers', icon: '👥', to: '/customers' },
   { key: 'reports',   label: 'Reports',   icon: '📈', to: '/reports' },
+  { key: 'payments',  label: 'Payments',  icon: '💳', to: '/payments' },
   { key: 'tasks',     label: 'Tasks',     icon: '🔔', to: '/tasks' },
 ];
+
+// Payment methods (PH context).
+export const PAYMENT_METHODS = [
+  { key: 'cash', label: 'Cash' },
+  { key: 'gcash', label: 'GCash' },
+  { key: 'bank_transfer', label: 'Bank Transfer' },
+  { key: 'other', label: 'Other' },
+];
+export const PAYMENT_METHOD_LABEL = Object.fromEntries(PAYMENT_METHODS.map((m) => [m.key, m.label]));
 
 export const CATEGORIES = [
   { key: 'sportswear', label: 'Sportswear' },

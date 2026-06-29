@@ -3,9 +3,9 @@ import { api } from './api';
 
 // Fallback per-role tab visibility (mirrors the backend defaults).
 const DEFAULTS = {
-  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'tasks'],
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
   marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
-  finance: ['projects', 'calendar', 'customers', 'reports', 'tasks'],
+  finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
   purchasing: ['calendar', 'tasks'],
   printing: ['calendar', 'tasks'],
   cutting_sewing: ['calendar', 'tasks'],

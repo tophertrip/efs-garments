@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Migrations for existing databases.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_name TEXT;
 
+-- Payments (multiple per project — partials / installments).
+CREATE TABLE IF NOT EXISTS payments (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id),
+  amount NUMERIC(10,2) NOT NULL,
+  method TEXT DEFAULT 'cash',
+  reference TEXT,
+  paid_on DATE,
+  recorded_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

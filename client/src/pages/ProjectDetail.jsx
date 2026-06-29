@@ -3,12 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import {
-  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, prevStageKey, peso, fmtDate, fmtDateTime,
+  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, prevStageKey, peso, fmtDate, fmtDateTime, PAYMENT_METHOD_LABEL,
 } from '../constants';
 import {
   Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Modal, Field, Input, Textarea, Select, ConfirmDialog,
 } from '../components';
 import ProjectForm from '../ProjectForm';
+import PaymentModal from '../PaymentModal';
 
 function Timeline({ project }) {
   const currentIdx = STAGE_KEYS.indexOf(project.status);
@@ -90,6 +91,7 @@ export default function ProjectDetail() {
   const [showTask, setShowTask] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   async function load() {
@@ -266,6 +268,49 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      {/* Payments */}
+      <Card className="p-5 mt-6">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="font-bold text-navy">💳 Payments</h2>
+          {project.balance > 0 && (
+            <Button variant="gold" onClick={() => setShowPayment(true)} className="print:hidden">+ Add Payment</Button>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <div className="rounded-xl p-4 bg-cloud">
+            <div className="text-xs text-gray-400 uppercase tracking-wide">Total Amount Due</div>
+            <div className="text-xl font-bold text-navy mt-1">{peso(project.total_amount)}</div>
+          </div>
+          <div className="rounded-xl p-4 bg-emerald-50 border border-emerald-200">
+            <div className="text-xs text-emerald-700 uppercase tracking-wide">Total Paid</div>
+            <div className="text-xl font-bold text-emerald-800 mt-1">{peso(project.total_paid)}</div>
+          </div>
+          <div className={`rounded-xl p-4 ${project.balance > 0 ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+            <div className={`text-xs uppercase tracking-wide ${project.balance > 0 ? 'text-red-600' : 'text-gray-400'}`}>Remaining Balance</div>
+            <div className={`text-xl font-bold mt-1 ${project.balance > 0 ? 'text-red-600' : 'text-gray-500'}`}>{peso(project.balance)}</div>
+          </div>
+        </div>
+        {project.payments.length === 0 ? (
+          <p className="text-sm text-gray-400">No payments recorded yet.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {project.payments.map((pay) => (
+              <li key={pay.id} className="flex items-center justify-between py-2 text-sm">
+                <div>
+                  <span className="font-semibold text-emerald-700">{peso(pay.amount)}</span>
+                  <span className="text-gray-500"> · {PAYMENT_METHOD_LABEL[pay.method] || pay.method}</span>
+                  {pay.reference && <span className="text-gray-400"> · {pay.reference}</span>}
+                </div>
+                <div className="text-xs text-gray-400">{fmtDate(pay.paid_on)}{pay.recorded_by_name ? ` · ${pay.recorded_by_name}` : ''}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {showPayment && (
+        <PaymentModal project={project} onClose={() => setShowPayment(false)} onSaved={load} />
+      )}
       {showTask && <AddTaskModal projectId={project.id} users={users} onClose={() => setShowTask(false)} onSaved={load} />}
       {showEdit && (
         <ProjectForm

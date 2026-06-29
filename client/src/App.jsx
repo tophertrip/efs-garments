@@ -13,6 +13,7 @@ import Reports from './pages/Reports';
 import CalendarPage from './pages/CalendarPage';
 import UserManagement from './pages/UserManagement';
 import OwnerDashboard from './pages/OwnerDashboard';
+import Payments from './pages/Payments';
 
 function Protected({ children, adminOnly, tab }) {
   const { user, isAdmin } = useAuth();
@@ -42,6 +43,7 @@ export default function App() {
       <Route path="/calendar" element={<Protected tab="calendar"><CalendarPage /></Protected>} />
       <Route path="/customers" element={<Protected tab="customers"><Customers /></Protected>} />
       <Route path="/reports" element={<Protected tab="reports"><Reports /></Protected>} />
+      <Route path="/payments" element={<Protected tab="payments"><Payments /></Protected>} />
       <Route path="/tasks" element={<Protected tab="tasks"><Tasks /></Protected>} />
       <Route path="/users" element={<Protected adminOnly><UserManagement /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
