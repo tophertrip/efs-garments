@@ -64,16 +64,11 @@ export default function Reports() {
     Object.entries(opts).forEach(([k, v]) => { if (v) params.set(k, v); });
     const d = await api.get(`/reports?${params}`);
     setData(d);
-    // Finance summary: status breakdown over the same date range (always all statuses).
-    const fp = new URLSearchParams({ groupBy: 'status', status: 'all', dateField: opts.dateField });
-    if (opts.from) fp.set('from', opts.from);
-    if (opts.to) fp.set('to', opts.to);
-    setFinance(await api.get(`/reports?${fp}`));
+    // Finance summary: actual collections (payments) — current snapshot.
+    setFinance(await api.get('/payments/summary'));
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [opts]);
-
-  const rowFor = (key) => (finance?.rows || []).find((r) => r.key === key) || { revenue: 0, orders: 0, units: 0 };
 
   function set(k, v) { setOpts((o) => ({ ...o, [k]: v })); }
 
@@ -151,26 +146,29 @@ export default function Reports() {
         )}
       </Card>
 
-      {/* Finance summary — Sales (Paid) vs For Payment (pending) */}
+      {/* Finance summary — actual collections from payments (current snapshot) */}
       {finance && (
         <Card className="p-5 mb-6">
-          <h2 className="font-bold text-navy mb-4">💰 Finance Summary</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <h2 className="font-bold text-navy mb-4">💰 Finance Summary <span className="text-xs font-normal text-gray-400">(based on recorded payments)</span></h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-xl p-5 bg-navy text-white">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total Sales (confirmed)</div>
+              <div className="text-2xl md:text-3xl font-extrabold mt-1">{peso(finance.totalSales)}</div>
+            </div>
             <div className="rounded-xl p-5 bg-emerald-50 border border-emerald-200">
-              <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales — Paid</div>
-              <div className="text-3xl font-extrabold text-emerald-800 mt-1">{peso(rowFor('paid').revenue)}</div>
-              <div className="text-sm text-emerald-700/80 mt-1">{rowFor('paid').orders} project{rowFor('paid').orders !== 1 ? 's' : ''} · {Number(rowFor('paid').units).toLocaleString()} pcs</div>
+              <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales — Paid (Collected)</div>
+              <div className="text-2xl md:text-3xl font-extrabold text-emerald-800 mt-1">{peso(finance.totalCollected)}</div>
             </div>
             <div className="rounded-xl p-5 bg-yellow-50 border border-yellow-200">
-              <div className="text-xs font-semibold text-yellow-700 uppercase tracking-wide">For Payment — Pending</div>
-              <div className="text-3xl font-extrabold text-yellow-800 mt-1">{peso(rowFor('for_payment').revenue)}</div>
-              <div className="text-sm text-yellow-700/80 mt-1">{rowFor('for_payment').orders} project{rowFor('for_payment').orders !== 1 ? 's' : ''} · {Number(rowFor('for_payment').units).toLocaleString()} pcs</div>
+              <div className="text-xs font-semibold text-yellow-700 uppercase tracking-wide">For Payment — Outstanding</div>
+              <div className="text-2xl md:text-3xl font-extrabold text-yellow-800 mt-1">{peso(finance.totalOutstanding)}</div>
             </div>
           </div>
-          <div className="mt-4 flex items-center gap-2 text-sm text-gray-600">
-            <span className="font-semibold text-navy">Total Projects:</span>
-            <span className="font-bold text-navy">{finance.summary.orders}</span>
-            <span className="text-gray-400">(all statuses{opts.from || opts.to ? ', within selected dates' : ''})</span>
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+            <span><span className="font-semibold text-navy">Total Projects:</span> <b>{finance.fullyPaid + finance.partiallyPaid + finance.unpaid}</b></span>
+            <span className="text-green-700">🟢 Fully Paid: <b>{finance.fullyPaid}</b></span>
+            <span className="text-yellow-700">🟡 Partial: <b>{finance.partiallyPaid}</b></span>
+            <span className="text-red-600">🔴 Unpaid: <b>{finance.unpaid}</b></span>
           </div>
         </Card>
       )}

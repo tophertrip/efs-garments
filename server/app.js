@@ -556,15 +556,12 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
   const sum = (key) => monthly.reduce((a, m) => a + m[key], 0);
   const cur = monthly[currentMonth - 1] || { sales: 0, projects: 0, pieces: 0 };
 
-  // Paid (realized sales) vs For Payment (pending) — this year.
-  const { n: salesPaid } = await get(
-    `SELECT COALESCE(SUM(total_amount),0)::float AS n FROM projects
-     WHERE status = 'paid' AND created_at::date >= ?::date AND created_at::date <= ?::date`, [yearStart, yearEnd]
+  // Money actually collected (sum of payments) vs outstanding balance.
+  const { n: totalCollected } = await get('SELECT COALESCE(SUM(amount),0)::float AS n FROM payments');
+  const { n: confirmedSales } = await get(
+    `SELECT COALESCE(SUM(total_amount),0)::float AS n FROM projects WHERE status NOT IN ('inquiry','quotation')`
   );
-  const { n: forPayment } = await get(
-    `SELECT COALESCE(SUM(total_amount),0)::float AS n FROM projects
-     WHERE status = 'for_payment' AND created_at::date >= ?::date AND created_at::date <= ?::date`, [yearStart, yearEnd]
-  );
+  const outstanding = confirmedSales - totalCollected;
 
   // Sales (revenue) by product category — this year.
   const byCategory = await query(`
@@ -583,8 +580,9 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
     summary: {
       salesYear: sum('sales'),
       salesMonth: cur.sales,
-      salesPaid,
-      forPayment,
+      totalCollected,
+      outstanding,
+      confirmedSales,
       projectsYear: sum('projects'),
       projectsMonth: cur.projects,
       piecesYear: sum('pieces'),

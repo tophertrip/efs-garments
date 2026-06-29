@@ -117,8 +117,8 @@ export default function OwnerDashboard() {
 
       {/* Year / Month totals */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        <Kpi label={`Sales — Paid (${year})`} value={peso(summary.salesPaid)} tone="green" />
-        <Kpi label={`For Payment — Pending (${year})`} value={peso(summary.forPayment)} tone="yellow" />
+        <Kpi label="Total Collected (Paid)" value={peso(summary.totalCollected)} tone="green" />
+        <Kpi label="Outstanding Balance" value={peso(summary.outstanding)} tone="yellow" />
         <Kpi label={`Total Projects (${year})`} value={num(summary.projectsYear)} tone="light" />
         <Kpi label="Total Projects (This Month)" value={num(summary.projectsMonth)} tone="light" />
         <Kpi label={`Total Pieces (${year})`} value={num(summary.piecesYear)} tone="indigo" />

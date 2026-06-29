@@ -10,7 +10,8 @@
     "migrate": "node migrate.js",
     "seed": "node seed.js",
     "seed:samples": "node seed-samples.js",
-    "backfill:details": "node backfill-details.js"
+    "backfill:details": "node backfill-details.js",
+    "seed:payments": "node seed-payments.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
