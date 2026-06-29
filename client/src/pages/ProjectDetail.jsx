@@ -140,7 +140,7 @@ export default function ProjectDetail() {
 
   return (
     <div>
-      <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-navy mb-4">← Back</button>
+      <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-navy mb-4 print:hidden">← Back</button>
 
       <div className="flex items-start justify-between flex-wrap gap-3 mb-6">
         <div>
@@ -149,9 +149,11 @@ export default function ProjectDetail() {
             <StageBadge status={project.status} />
             <PriorityBadge priority={project.priority} />
           </div>
-          <p className="text-gray-600 mt-1">{project.customer_name}</p>
+          {project.project_name && <p className="text-lg font-semibold text-gray-800 mt-1">{project.project_name}</p>}
+          <p className="text-gray-600 mt-0.5">{project.customer_name}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap print:hidden">
+          <Button variant="outline" onClick={() => window.print()}>🖨️ Print / PDF</Button>
           {isAdmin && (
             <Button variant="outline" onClick={() => setShowEdit(true)}>✏️ Edit</Button>
           )}
@@ -179,6 +181,10 @@ export default function ProjectDetail() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-5">
             <h2 className="font-bold text-navy mb-3">Project Details</h2>
+            <div className="mb-4">
+              <div className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Project Name</div>
+              <div className="text-base font-semibold text-navy">{project.project_name || <span className="text-gray-400 font-normal">—</span>}</div>
+            </div>
             <dl className="grid grid-cols-2 sm:grid-cols-3 gap-y-4 gap-x-4 text-sm">
               <Detail label="Category"><CategoryBadge category={project.category} /></Detail>
               <Detail label="Quantity">{project.quantity}</Detail>
@@ -212,7 +218,7 @@ export default function ProjectDetail() {
           <Card className="p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-bold text-navy">Tasks & Reminders</h2>
-              <Button variant="outline" onClick={() => setShowTask(true)} className="py-1.5 px-3 text-xs">+ Add</Button>
+              <Button variant="outline" onClick={() => setShowTask(true)} className="py-1.5 px-3 text-xs print:hidden">+ Add</Button>
             </div>
             {project.tasks.length === 0 && <p className="text-sm text-gray-400">No tasks yet.</p>}
             <ul className="space-y-2">

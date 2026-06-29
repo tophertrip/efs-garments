@@ -18,6 +18,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
   const [busy, setBusy] = useState(false);
 
   const [form, setForm] = useState(() => (project ? {
+    project_name: project.project_name || '',
     customer_id: String(project.customer_id || ''),
     category: project.category || 'sportswear',
     description: project.description || '',
@@ -29,6 +30,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
     remarks: project.remarks || '',
     design_file_url: project.design_file_url || '',
   } : {
+    project_name: '',
     customer_id: '',
     category: 'sportswear',
     description: '',
@@ -128,6 +130,10 @@ export default function ProjectForm({ onClose, onSaved, project }) {
               </div>
             </div>
           )}
+        </Field>
+
+        <Field label="Project Name">
+          <Input value={form.project_name} onChange={(e) => set('project_name', e.target.value)} placeholder="e.g. 2026 Team Jerseys — Cebu Sports" />
         </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

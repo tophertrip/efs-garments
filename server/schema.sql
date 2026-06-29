@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
   job_order_number TEXT UNIQUE NOT NULL,
+  project_name TEXT,
   customer_id INTEGER REFERENCES customers(id),
   category TEXT NOT NULL,
   description TEXT,
@@ -63,6 +64,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   is_done INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Migrations for existing databases.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_name TEXT;
 
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (

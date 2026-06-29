@@ -15,3 +15,12 @@ body {
 .kanban-scroll::-webkit-scrollbar { height: 10px; }
 .kanban-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
 .kanban-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Print / Export to PDF: hide the app chrome, show only the page content */
+@media print {
+  aside, header { display: none !important; }
+  main { padding: 0 !important; }
+  body { background: #fff !important; }
+  /* Let the timeline / details flow onto the page nicely */
+  .lg\:col-span-2 { grid-column: auto !important; }
+}

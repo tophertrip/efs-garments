@@ -185,7 +185,7 @@ app.get('/api/projects/:id', auth, wrap(async (req, res) => {
 
 app.post('/api/projects', auth, wrap(async (req, res) => {
   const {
-    customer_id, category, description, quantity, unit_price,
+    project_name, customer_id, category, description, quantity, unit_price,
     target_date, design_notes, remarks, design_file_url, priority,
   } = req.body;
 
@@ -208,12 +208,12 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
 
   const inserted = await run(`
     INSERT INTO projects
-      (job_order_number, customer_id, category, description, quantity, unit_price,
+      (job_order_number, project_name, customer_id, category, description, quantity, unit_price,
        total_amount, target_date, design_notes, remarks, design_file_url, priority, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry')
     RETURNING id
   `, [
-    job_order_number, customer_id, category, description || null, quantity,
+    job_order_number, project_name || null, customer_id, category, description || null, quantity,
     unit_price || null, total_amount, target_date, design_notes || null,
     remarks || null, design_file_url || null, priority || 'normal',
   ]);
@@ -231,7 +231,7 @@ app.put('/api/projects/:id', auth, wrap(async (req, res) => {
   const existing = await get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
 
-  const fields = ['customer_id', 'category', 'description', 'quantity', 'unit_price',
+  const fields = ['project_name', 'customer_id', 'category', 'description', 'quantity', 'unit_price',
     'target_date', 'design_notes', 'remarks', 'design_file_url', 'priority'];
   const merged = { ...existing };
   for (const f of fields) if (f in req.body) merged[f] = req.body[f];
@@ -239,12 +239,12 @@ app.put('/api/projects/:id', auth, wrap(async (req, res) => {
 
   await run(`
     UPDATE projects SET
-      customer_id=?, category=?, description=?, quantity=?, unit_price=?,
+      project_name=?, customer_id=?, category=?, description=?, quantity=?, unit_price=?,
       total_amount=?, target_date=?, design_notes=?, remarks=?, design_file_url=?,
       priority=?, updated_at=now()
     WHERE id=?
   `, [
-    merged.customer_id, merged.category, merged.description, merged.quantity,
+    merged.project_name || null, merged.customer_id, merged.category, merged.description, merged.quantity,
     merged.unit_price, merged.total_amount, merged.target_date, merged.design_notes,
     merged.remarks, merged.design_file_url, merged.priority, req.params.id,
   ]);
