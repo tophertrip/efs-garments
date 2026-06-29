@@ -546,17 +546,42 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
   const sum = (key) => monthly.reduce((a, m) => a + m[key], 0);
   const cur = monthly[currentMonth - 1] || { sales: 0, projects: 0, pieces: 0 };
 
+  // Paid (realized sales) vs For Payment (pending) — this year.
+  const { n: salesPaid } = await get(
+    `SELECT COALESCE(SUM(total_amount),0)::float AS n FROM projects
+     WHERE status = 'paid' AND created_at::date >= ?::date AND created_at::date <= ?::date`, [yearStart, yearEnd]
+  );
+  const { n: forPayment } = await get(
+    `SELECT COALESCE(SUM(total_amount),0)::float AS n FROM projects
+     WHERE status = 'for_payment' AND created_at::date >= ?::date AND created_at::date <= ?::date`, [yearStart, yearEnd]
+  );
+
+  // Sales (revenue) by product category — this year.
+  const byCategory = await query(`
+    SELECT category,
+           COUNT(*)::int AS projects,
+           COALESCE(SUM(total_amount),0)::float AS sales,
+           COALESCE(SUM(quantity),0)::int AS pieces
+    FROM projects
+    WHERE created_at::date >= ?::date AND created_at::date <= ?::date
+    GROUP BY category
+    ORDER BY sales DESC
+  `, [yearStart, yearEnd]);
+
   res.json({
     year,
     summary: {
       salesYear: sum('sales'),
       salesMonth: cur.sales,
+      salesPaid,
+      forPayment,
       projectsYear: sum('projects'),
       projectsMonth: cur.projects,
       piecesYear: sum('pieces'),
       piecesMonth: cur.pieces,
     },
     monthly,
+    byCategory,
   });
 }));
 

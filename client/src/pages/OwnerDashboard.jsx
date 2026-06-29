@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { peso } from '../constants';
+import { useCategories } from '../categories';
 import { Card, Spinner } from '../components';
+
+const PIE_COLORS = ['#1B2A4A', '#F5A623', '#6366f1', '#10b981', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#a855f7', '#ef4444'];
 
 function Kpi({ label, value, tone = 'light' }) {
   const tones = {
     navy: 'bg-navy text-white',
     gold: 'bg-gold text-navy',
     indigo: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
-    green: 'bg-green-50 text-green-700 border border-green-200',
+    green: 'bg-emerald-50 text-emerald-800 border border-emerald-200',
+    yellow: 'bg-yellow-50 text-yellow-800 border border-yellow-200',
     light: 'bg-white border border-gray-200 text-navy',
   };
   return (
@@ -58,7 +62,35 @@ function ChartCard({ title, children }) {
   );
 }
 
+// Pie chart via CSS conic-gradient (no chart library).
+function CategoryPie({ data, format }) {
+  const total = data.reduce((a, d) => a + d.value, 0);
+  if (!total) return <p className="text-gray-400 text-sm">No data yet.</p>;
+  let acc = 0;
+  const stops = data.map((d) => {
+    const start = (acc / total) * 100;
+    acc += d.value;
+    const end = (acc / total) * 100;
+    return `${d.color} ${start}% ${end}%`;
+  }).join(', ');
+  return (
+    <div className="flex items-center gap-6 flex-wrap">
+      <div className="rounded-full shrink-0" style={{ width: 176, height: 176, background: `conic-gradient(${stops})` }} />
+      <div className="space-y-1.5 flex-1 min-w-[200px]">
+        {data.map((d) => (
+          <div key={d.label} className="flex items-center gap-2 text-sm">
+            <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ background: d.color }} />
+            <span className="text-gray-700">{d.label}</span>
+            <span className="text-gray-500 ml-auto whitespace-nowrap">{format(d.value)} · {Math.round((d.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function OwnerDashboard() {
+  const { label: catLabel } = useCategories();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,6 +104,9 @@ export default function OwnerDashboard() {
   const { summary, monthly, year } = data;
   const currentMonth = new Date().getMonth() + 1;
   const num = (n) => Number(n || 0).toLocaleString();
+  const pieData = (data.byCategory || []).map((c, i) => ({
+    label: catLabel(c.category), value: c.sales, color: PIE_COLORS[i % PIE_COLORS.length],
+  }));
 
   return (
     <div>
@@ -82,8 +117,8 @@ export default function OwnerDashboard() {
 
       {/* Year / Month totals */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        <Kpi label={`Total Sales (${year})`} value={peso(summary.salesYear)} tone="navy" />
-        <Kpi label="Total Sales (This Month)" value={peso(summary.salesMonth)} tone="gold" />
+        <Kpi label={`Sales — Paid (${year})`} value={peso(summary.salesPaid)} tone="green" />
+        <Kpi label={`For Payment — Pending (${year})`} value={peso(summary.forPayment)} tone="yellow" />
         <Kpi label={`Total Projects (${year})`} value={num(summary.projectsYear)} tone="light" />
         <Kpi label="Total Projects (This Month)" value={num(summary.projectsMonth)} tone="light" />
         <Kpi label={`Total Pieces (${year})`} value={num(summary.piecesYear)} tone="indigo" />
@@ -103,6 +138,9 @@ export default function OwnerDashboard() {
             <MonthlyBars data={monthly} valueKey="pieces" format={num} barClass="bg-indigo-400" currentMonth={currentMonth} />
           </ChartCard>
         </div>
+        <ChartCard title={`Sales by Product Category — ${year}`}>
+          <CategoryPie data={pieData} format={peso} />
+        </ChartCard>
       </div>
     </div>
   );
