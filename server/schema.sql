@@ -80,6 +80,31 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Inventory items + IN/OUT stock transactions (per item, per size).
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  tracks_size BOOLEAN DEFAULT false,
+  unit TEXT DEFAULT 'pcs',
+  low_stock_threshold INTEGER DEFAULT 10,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS inventory_txns (
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER REFERENCES inventory_items(id),
+  size TEXT,
+  qty INTEGER NOT NULL,
+  type TEXT NOT NULL,            -- 'in' | 'out'
+  supplier TEXT,
+  project_id INTEGER REFERENCES projects(id),
+  notes TEXT,
+  txn_date DATE,
+  recorded_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

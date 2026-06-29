@@ -35,8 +35,13 @@ export const TABS = [
   { key: 'customers', label: 'Customers', icon: '👥', to: '/customers' },
   { key: 'reports',   label: 'Reports',   icon: '📈', to: '/reports' },
   { key: 'payments',  label: 'Payments',  icon: '💳', to: '/payments' },
+  { key: 'inventory', label: 'Inventory', icon: '📦', to: '/inventory' },
   { key: 'tasks',     label: 'Tasks',     icon: '🔔', to: '/tasks' },
 ];
+
+// Inventory.
+export const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+export const INVENTORY_CATEGORIES = ['Raw Materials', 'Blank Garments', 'Accessories', 'Packaging', 'Uniforms'];
 
 // Payment methods (PH context).
 export const PAYMENT_METHODS = [

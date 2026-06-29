@@ -41,10 +41,10 @@ function admin(req, res, next) {
 
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
-  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'inventory', 'tasks'],
   marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
   finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
-  purchasing: ['calendar', 'tasks'],
+  purchasing: ['calendar', 'inventory', 'tasks'],
   printing: ['calendar', 'tasks'],
   cutting_sewing: ['calendar', 'tasks'],
   qa: ['calendar', 'tasks'],
@@ -759,6 +759,107 @@ app.post('/api/payments', auth, wrap(async (req, res) => {
 app.delete('/api/payments/:id', auth, wrap(async (req, res) => {
   if (!['admin', 'finance'].includes(req.user.role)) return res.status(403).json({ error: 'Only admin or finance can delete payments' });
   await run('DELETE FROM payments WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// INVENTORY — items + IN/OUT stock transactions (per item, per size)
+// ---------------------------------------------------------------------------
+function invManage(req, res, next) {
+  if (!['admin', 'purchasing'].includes(req.user.role)) return res.status(403).json({ error: 'Only admin or purchasing can manage inventory' });
+  next();
+}
+
+app.get('/api/inventory/items', auth, wrap(async (req, res) => {
+  res.json(await query('SELECT * FROM inventory_items ORDER BY category, name'));
+}));
+
+app.post('/api/inventory/items', auth, invManage, wrap(async (req, res) => {
+  const { name, category, tracks_size, unit, low_stock_threshold } = req.body;
+  if (!name || !category) return res.status(400).json({ error: 'Name and category are required' });
+  const r = await run(`
+    INSERT INTO inventory_items (name, category, tracks_size, unit, low_stock_threshold)
+    VALUES (?, ?, ?, ?, ?) RETURNING *
+  `, [name.trim(), category, !!tracks_size, unit || 'pcs', Number(low_stock_threshold) || 10]);
+  res.status(201).json(r.rows[0]);
+}));
+
+app.put('/api/inventory/items/:id', auth, invManage, wrap(async (req, res) => {
+  const existing = await get('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'Item not found' });
+  const m = { ...existing };
+  for (const f of ['name', 'category', 'tracks_size', 'unit', 'low_stock_threshold']) if (f in req.body) m[f] = req.body[f];
+  await run('UPDATE inventory_items SET name=?, category=?, tracks_size=?, unit=?, low_stock_threshold=? WHERE id=?',
+    [m.name, m.category, !!m.tracks_size, m.unit || 'pcs', Number(m.low_stock_threshold) || 10, req.params.id]);
+  res.json(await get('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]));
+}));
+
+app.delete('/api/inventory/items/:id', auth, invManage, wrap(async (req, res) => {
+  await run('DELETE FROM inventory_txns WHERE item_id = ?', [req.params.id]);
+  await run('DELETE FROM inventory_items WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// Current stock per item per size (+ totals & low-stock flag).
+app.get('/api/inventory/summary', auth, wrap(async (req, res) => {
+  const items = await query('SELECT * FROM inventory_items ORDER BY category, name');
+  const stockRows = await query(`
+    SELECT item_id, COALESCE(size, '') AS size,
+           SUM(CASE WHEN type = 'in' THEN qty ELSE -qty END)::int AS stock
+    FROM inventory_txns GROUP BY item_id, COALESCE(size, '')
+  `);
+  const byItem = {};
+  stockRows.forEach((r) => { (byItem[r.item_id] = byItem[r.item_id] || {})[r.size] = r.stock; });
+  const out = items.map((it) => {
+    const sizes = byItem[it.id] || {};
+    const total = Object.values(sizes).reduce((a, b) => a + b, 0);
+    return { ...it, sizes, total };
+  });
+  res.json(out);
+}));
+
+// Transaction history (filters: from, to, item_id, type, category).
+app.get('/api/inventory/txns', auth, wrap(async (req, res) => {
+  const { from, to, item_id, type, category } = req.query;
+  const where = [];
+  const params = [];
+  if (from) { where.push('t.txn_date >= ?'); params.push(from); }
+  if (to) { where.push('t.txn_date <= ?'); params.push(to); }
+  if (item_id) { where.push('t.item_id = ?'); params.push(item_id); }
+  if (type) { where.push('t.type = ?'); params.push(type); }
+  if (category) { where.push('i.category = ?'); params.push(category); }
+  const rows = await query(`
+    SELECT t.id, t.size, t.qty, t.type, t.supplier, t.notes, t.txn_date, t.created_at,
+           i.name AS item_name, i.category, i.unit,
+           p.job_order_number, u.name AS recorded_by_name
+    FROM inventory_txns t
+    LEFT JOIN inventory_items i ON i.id = t.item_id
+    LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN users u ON u.id = t.recorded_by
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY t.txn_date DESC NULLS LAST, t.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+// Log a stock movement.
+app.post('/api/inventory/txns', auth, wrap(async (req, res) => {
+  const { item_id, size, qty, type, supplier, project_id, notes, txn_date } = req.body;
+  const q = Number(qty);
+  if (!item_id || !q || q <= 0) return res.status(400).json({ error: 'Item and a positive quantity are required' });
+  if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'Type must be in or out' });
+  const item = await get('SELECT * FROM inventory_items WHERE id = ?', [item_id]);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await run(`
+    INSERT INTO inventory_txns (item_id, size, qty, type, supplier, project_id, notes, txn_date, recorded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+  `, [item_id, item.tracks_size ? (size || null) : null, q, type, supplier || null, project_id || null, notes || null, txn_date || today, req.user.id]);
+  res.status(201).json({ id: r.rows[0].id });
+}));
+
+app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => {
+  await run('DELETE FROM inventory_txns WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
 
