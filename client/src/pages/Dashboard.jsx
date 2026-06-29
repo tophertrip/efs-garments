@@ -31,7 +31,7 @@ function KanbanCard({ project, onClick }) {
         <span className="text-xs font-bold text-navy">{project.job_order_number}</span>
         {project.priority !== 'normal' && <PriorityBadge priority={project.priority} />}
       </div>
-      <div className="text-sm font-semibold text-gray-800 truncate">{project.customer_company || project.customer_name}</div>
+      <div className="text-sm font-semibold text-gray-800 truncate">{project.project_name || project.customer_company || project.customer_name}</div>
       <div className="mt-2 flex items-center justify-between">
         <CategoryBadge category={project.category} />
         <span className="text-xs text-gray-500">Qty {project.quantity}</span>

@@ -27,9 +27,9 @@ export default function ProjectsList() {
   function set(k, v) { setFilters((f) => ({ ...f, [k]: v })); }
 
   function exportCsv() {
-    const headers = ['Job Order', 'Customer', 'Category', 'Quantity', 'Unit Price', 'Total', 'Target Date', 'Status', 'Priority'];
+    const headers = ['Job Order', 'Project Name', 'Customer', 'Category', 'Quantity', 'Unit Price', 'Total', 'Target Date', 'Status', 'Priority'];
     const rows = projects.map((p) => [
-      p.job_order_number, p.customer_name, catLabel(p.category),
+      p.job_order_number, p.project_name || '', p.customer_name, catLabel(p.category),
       p.quantity, p.unit_price ?? '', p.total_amount ?? '', p.target_date, p.status, p.priority,
     ]);
     const csv = [headers, ...rows]
@@ -79,7 +79,7 @@ export default function ProjectsList() {
             <table className="w-full text-sm">
               <thead className="bg-navy text-white text-left">
                 <tr>
-                  {['Job Order', 'Customer', 'Category', 'Qty', 'Target Date', 'Status', 'Priority', 'Days Left'].map((h) => (
+                  {['Job Order', 'Project Name', 'Category', 'Qty', 'Target Date', 'Status', 'Priority', 'Days Left'].map((h) => (
                     <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -91,7 +91,7 @@ export default function ProjectsList() {
                 {projects.map((p) => (
                   <tr key={p.id} className="hover:bg-cloud cursor-pointer" onClick={() => navigate(`/projects/${p.id}`)}>
                     <td className="px-4 py-3 font-bold text-navy whitespace-nowrap">{p.job_order_number}</td>
-                    <td className="px-4 py-3">{p.customer_name}</td>
+                    <td className="px-4 py-3">{p.project_name || <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3"><CategoryBadge category={p.category} /></td>
                     <td className="px-4 py-3">{p.quantity}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmtDate(p.target_date)}</td>

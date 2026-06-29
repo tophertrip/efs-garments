@@ -9,7 +9,8 @@
     "dev": "node --watch index.js",
     "migrate": "node migrate.js",
     "seed": "node seed.js",
-    "seed:samples": "node seed-samples.js"
+    "seed:samples": "node seed-samples.js",
+    "backfill:details": "node backfill-details.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
