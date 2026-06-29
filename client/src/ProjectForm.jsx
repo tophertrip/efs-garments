@@ -77,8 +77,22 @@ export default function ProjectForm({ onClose, onSaved, project }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.customer_id) { setError('Please choose a customer'); return; }
-    if (!form.quantity || !form.target_date) { setError('Quantity and target date are required'); return; }
+    // Every field must be answered.
+    const required = [
+      ['customer_id', 'Customer'],
+      ['project_name', 'Project Name'],
+      ['category', 'Category'],
+      ['description', 'Description / Item details'],
+      ['quantity', 'Quantity'],
+      ['unit_price', 'Unit Price'],
+      ['target_date', 'Target Date'],
+      ['design_notes', 'Project Details (Sizes / Design Notes)'],
+      ['remarks', 'Remarks'],
+      ['design_file_url', 'Design File Link'],
+    ];
+    for (const [key, label] of required) {
+      if (String(form[key] ?? '').trim() === '') { setError(`${label} is required`); return; }
+    }
     setBusy(true);
     setError('');
     const payload = {
@@ -132,7 +146,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
           )}
         </Field>
 
-        <Field label="Project Name">
+        <Field label="Project Name" required>
           <Input value={form.project_name} onChange={(e) => set('project_name', e.target.value)} placeholder="e.g. 2026 Team Jerseys — Cebu Sports" />
         </Field>
 
@@ -168,7 +182,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
           </Field>
         </div>
 
-        <Field label="Description / Item details">
+        <Field label="Description / Item details" required>
           <Input value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="e.g. Sublimated basketball jersey set" />
         </Field>
 
@@ -176,7 +190,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
           <Field label="Quantity" required>
             <Input type="number" min="1" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
           </Field>
-          <Field label="Unit Price (₱)">
+          <Field label="Unit Price (₱)" required>
             <Input type="number" min="0" step="0.01" value={form.unit_price} onChange={(e) => set('unit_price', e.target.value)} />
           </Field>
           <Field label="Total">
@@ -188,15 +202,15 @@ export default function ProjectForm({ onClose, onSaved, project }) {
           <Input type="date" value={form.target_date} onChange={(e) => set('target_date', e.target.value)} />
         </Field>
 
-        <Field label="Design Notes">
-          <Textarea rows={3} value={form.design_notes} onChange={(e) => set('design_notes', e.target.value)} placeholder="Colors, sizes, placement of logos…" />
+        <Field label="Project Details (Sizes / Design Notes)" required>
+          <Textarea rows={3} value={form.design_notes} onChange={(e) => set('design_notes', e.target.value)} placeholder="Sizes & breakdown, colors, placement of logos…" />
         </Field>
 
-        <Field label="Remarks">
+        <Field label="Remarks" required>
           <Textarea rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} placeholder="Internal notes, special instructions, payment terms…" />
         </Field>
 
-        <Field label="Design File Link (Google Drive / Canva)">
+        <Field label="Design File Link (Google Drive / Canva)" required>
           <Input type="url" value={form.design_file_url} onChange={(e) => set('design_file_url', e.target.value)} placeholder="https://…" />
         </Field>
 

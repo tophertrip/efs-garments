@@ -196,7 +196,7 @@ export default function ProjectDetail() {
             {project.description && <Detail label="Description" className="mt-4 block">{project.description}</Detail>}
             {project.design_notes && (
               <div className="mt-4">
-                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Design Notes</div>
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Sizes / Design Notes</div>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap bg-cloud rounded-lg p-3">{project.design_notes}</p>
               </div>
             )}
