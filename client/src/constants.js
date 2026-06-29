@@ -10,7 +10,8 @@ export const STAGES = [
   { key: 'qa',             label: 'Quality Check',      emoji: '🔍', owner: 'qa',             color: 'bg-teal-100 text-teal-700 border-teal-300' },
   { key: 'ready',          label: 'Ready',              emoji: '📦', owner: 'admin',          color: 'bg-lime-100 text-lime-700 border-lime-300' },
   { key: 'delivered',      label: 'Delivered',          emoji: '🎉', owner: 'admin',          color: 'bg-green-100 text-green-700 border-green-300' },
-  { key: 'paid',           label: 'For Payment',        emoji: '💰', owner: 'finance',        color: 'bg-emerald-200 text-emerald-900 border-emerald-400' },
+  { key: 'for_payment',    label: 'For Payment',        emoji: '🧾', owner: 'finance',        color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { key: 'paid',           label: 'Paid',               emoji: '💰', owner: 'finance',        color: 'bg-emerald-200 text-emerald-900 border-emerald-400' },
 ];
 
 export const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.key, s]));

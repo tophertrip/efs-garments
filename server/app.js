@@ -494,7 +494,7 @@ app.get('/api/dashboard', auth, wrap(async (req, res) => {
     `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ${activeStatuses} AND target_date < ?`, [today]
   );
   const { n: completedThisMonth } = await get(
-    `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ('delivered','paid') AND updated_at >= ?`, [monthStart]
+    `SELECT COUNT(*)::int AS n FROM projects WHERE status IN ('delivered','for_payment','paid') AND updated_at >= ?`, [monthStart]
   );
 
   // Total pieces / units due (sum of quantity) among active orders.
@@ -573,8 +573,9 @@ app.get('/api/reports', auth, wrap(async (req, res) => {
   if (from) { where.push(`${dateCol}::date >= ?::date`); params.push(from); }
   if (to) { where.push(`${dateCol}::date <= ?::date`); params.push(to); }
   if (status === 'delivered') where.push(`p.status = 'delivered'`);
+  else if (status === 'for_payment') where.push(`p.status = 'for_payment'`);
   else if (status === 'paid') where.push(`p.status = 'paid'`);
-  else if (status === 'active') where.push(`p.status NOT IN ('delivered','paid')`);
+  else if (status === 'active') where.push(`p.status NOT IN ('delivered','for_payment','paid')`);
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
   let keyExpr;

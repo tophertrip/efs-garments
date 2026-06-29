@@ -13,7 +13,7 @@ const ROLE_STAGES = {
   printing: ['printing'],
   cutting_sewing: ['cutting_sewing'],
   qa: ['qa'],
-  finance: ['delivered', 'paid'], // Finance handles Delivered → For Payment
+  finance: ['delivered', 'for_payment', 'paid'], // Finance: Delivered → For Payment → Paid
 };
 
 export default function TeamView() {

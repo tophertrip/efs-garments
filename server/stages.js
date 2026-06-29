@@ -10,7 +10,8 @@ const STAGES = [
   { key: 'qa',             label: 'Quality Check',           owner: 'qa' },
   { key: 'ready',          label: 'Ready for Pickup/Delivery', owner: 'admin' },
   { key: 'delivered',      label: 'Delivered',               owner: 'admin' },
-  { key: 'paid',           label: 'For Payment',             owner: 'finance' },
+  { key: 'for_payment',    label: 'For Payment',             owner: 'finance' },
+  { key: 'paid',           label: 'Paid',                    owner: 'finance' },
 ];
 
 const STAGE_KEYS = STAGES.map((s) => s.key);
