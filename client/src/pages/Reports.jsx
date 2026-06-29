@@ -9,7 +9,7 @@ const GROUP_OPTIONS = [
   { key: 'week', label: 'By Week' },
   { key: 'year', label: 'By Year' },
   { key: 'category', label: 'By Product Category' },
-  { key: 'customer', label: 'By Customer' },
+  { key: 'customer', label: 'By Company' },
   { key: 'status', label: 'By Stage / Status' },
   { key: 'priority', label: 'By Priority' },
 ];

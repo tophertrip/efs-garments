@@ -587,7 +587,7 @@ app.get('/api/reports', auth, wrap(async (req, res) => {
     case 'status':   keyExpr = `p.status`; break;
     case 'priority': keyExpr = `p.priority`; break;
     case 'customer':
-      keyExpr = `c.name`;
+      keyExpr = `COALESCE(NULLIF(c.company, ''), c.name)`;
       joinSql = 'LEFT JOIN customers c ON c.id = p.customer_id';
       break;
     case 'month':
