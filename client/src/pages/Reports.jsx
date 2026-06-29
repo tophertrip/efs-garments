@@ -54,6 +54,7 @@ export default function Reports() {
   const { label: catLabel } = useCategories();
   const [opts, setOpts] = useState({ groupBy: 'month', dateField: 'created', from: '', to: '', status: 'all' });
   const [data, setData] = useState(null);
+  const [finance, setFinance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState('revenue'); // which measure the bars show
 
@@ -63,9 +64,16 @@ export default function Reports() {
     Object.entries(opts).forEach(([k, v]) => { if (v) params.set(k, v); });
     const d = await api.get(`/reports?${params}`);
     setData(d);
+    // Finance summary: status breakdown over the same date range (always all statuses).
+    const fp = new URLSearchParams({ groupBy: 'status', status: 'all', dateField: opts.dateField });
+    if (opts.from) fp.set('from', opts.from);
+    if (opts.to) fp.set('to', opts.to);
+    setFinance(await api.get(`/reports?${fp}`));
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [opts]);
+
+  const rowFor = (key) => (finance?.rows || []).find((r) => r.key === key) || { revenue: 0, orders: 0, units: 0 };
 
   function set(k, v) { setOpts((o) => ({ ...o, [k]: v })); }
 
@@ -142,6 +150,30 @@ export default function Reports() {
             className="text-xs text-gray-500 hover:text-navy mt-3">✕ Clear filters</button>
         )}
       </Card>
+
+      {/* Finance summary — Sales (Paid) vs For Payment (pending) */}
+      {finance && (
+        <Card className="p-5 mb-6">
+          <h2 className="font-bold text-navy mb-4">💰 Finance Summary</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="rounded-xl p-5 bg-emerald-50 border border-emerald-200">
+              <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales — Paid</div>
+              <div className="text-3xl font-extrabold text-emerald-800 mt-1">{peso(rowFor('paid').revenue)}</div>
+              <div className="text-sm text-emerald-700/80 mt-1">{rowFor('paid').orders} project{rowFor('paid').orders !== 1 ? 's' : ''} · {Number(rowFor('paid').units).toLocaleString()} pcs</div>
+            </div>
+            <div className="rounded-xl p-5 bg-yellow-50 border border-yellow-200">
+              <div className="text-xs font-semibold text-yellow-700 uppercase tracking-wide">For Payment — Pending</div>
+              <div className="text-3xl font-extrabold text-yellow-800 mt-1">{peso(rowFor('for_payment').revenue)}</div>
+              <div className="text-sm text-yellow-700/80 mt-1">{rowFor('for_payment').orders} project{rowFor('for_payment').orders !== 1 ? 's' : ''} · {Number(rowFor('for_payment').units).toLocaleString()} pcs</div>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+            <span className="font-semibold text-navy">Total Projects:</span>
+            <span className="font-bold text-navy">{finance.summary.orders}</span>
+            <span className="text-gray-400">(all statuses{opts.from || opts.to ? ', within selected dates' : ''})</span>
+          </div>
+        </Card>
+      )}
 
       {loading ? <Spinner /> : (
         <>
