@@ -460,15 +460,30 @@ app.get('/api/tasks', auth, wrap(async (req, res) => {
   res.json(rows);
 }));
 
+// Any signed-in user can create a reminder and tag it to a person, several
+// people, or everyone (all staff). 'all' / an array broadcasts one copy each.
 app.post('/api/tasks', auth, wrap(async (req, res) => {
   const { project_id, assigned_to, title, description, due_date } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
-  const inserted = await run(`
-    INSERT INTO tasks (project_id, assigned_to, title, description, due_date)
-    VALUES (?, ?, ?, ?, ?)
-    RETURNING *
-  `, [project_id || null, assigned_to || null, title, description || null, due_date || null]);
-  res.status(201).json(inserted.rows[0]);
+  let assignees;
+  if (assigned_to === 'all') {
+    assignees = (await query('SELECT id FROM users ORDER BY id')).map((u) => u.id);
+  } else if (Array.isArray(assigned_to)) {
+    assignees = assigned_to.filter(Boolean).map(Number);
+  } else {
+    assignees = [assigned_to ? Number(assigned_to) : null];
+  }
+  if (assignees.length === 0) assignees = [null];
+  const created = [];
+  for (const a of assignees) {
+    const inserted = await run(`
+      INSERT INTO tasks (project_id, assigned_to, title, description, due_date)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING *
+    `, [project_id || null, a || null, title, description || null, due_date || null]);
+    created.push(inserted.rows[0]);
+  }
+  res.status(201).json({ count: created.length, tasks: created });
 }));
 
 app.put('/api/tasks/:id/done', auth, wrap(async (req, res) => {

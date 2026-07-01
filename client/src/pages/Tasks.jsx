@@ -11,11 +11,15 @@ function AddReminderModal({ users, projects, onClose, onSaved }) {
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
+    // assigned_to: '' → unassigned, 'all' → everyone (one copy each), else a user id.
+    let assigned_to = null;
+    if (form.assigned_to === 'all') assigned_to = 'all';
+    else if (form.assigned_to) assigned_to = Number(form.assigned_to);
     await api.post('/tasks', {
       title: form.title,
       description: form.description,
       due_date: form.due_date || null,
-      assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
+      assigned_to,
       project_id: form.project_id ? Number(form.project_id) : null,
     });
     onSaved();
@@ -30,7 +34,8 @@ function AddReminderModal({ users, projects, onClose, onSaved }) {
           <Field label="Due date"><Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></Field>
           <Field label="Assign to">
             <Select value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })}>
-              <option value="">— Anyone —</option>
+              <option value="">— Anyone (unassigned) —</option>
+              <option value="all">👥 Everyone (all staff)</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           </Field>
@@ -48,7 +53,7 @@ function AddReminderModal({ users, projects, onClose, onSaved }) {
 }
 
 export default function Tasks() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -59,20 +64,18 @@ export default function Tasks() {
   async function load() {
     setLoading(true);
     const params = new URLSearchParams();
-    // Non-admins only ever see their own tasks.
-    if (!isAdmin) params.set('assigned_to', user.id);
-    else if (filter.assigned_to) params.set('assigned_to', filter.assigned_to);
+    // Shared reminder board — everyone sees all reminders; filter to narrow down.
+    if (filter.assigned_to) params.set('assigned_to', filter.assigned_to);
     if (filter.done !== '') params.set('done', filter.done);
     setTasks(await api.get(`/tasks${params.toString() ? '?' + params : ''}`));
     setLoading(false);
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter, isAdmin]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
   useEffect(() => {
-    if (isAdmin) {
-      api.get('/users').then(setUsers).catch(() => {});
-      api.get('/projects').then(setProjects).catch(() => {});
-    }
-  }, [isAdmin]);
+    // All roles can tag reminders to anyone, so everyone needs the people list.
+    api.get('/users').then(setUsers).catch(() => {});
+    api.get('/projects').then(setProjects).catch(() => {});
+  }, []);
 
   async function toggle(t) {
     await api.put(`/tasks/${t.id}/done`, { is_done: t.is_done ? 0 : 1 });
@@ -83,20 +86,19 @@ export default function Tasks() {
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold text-navy">{isAdmin ? 'Reminders' : 'My Tasks'}</h1>
+          <h1 className="text-2xl font-extrabold text-navy">Reminders</h1>
           <p className="text-gray-500 text-sm">{tasks.filter((t) => !t.is_done).length} open</p>
         </div>
-        {isAdmin && <Button variant="gold" onClick={() => setShow(true)}>+ New Reminder</Button>}
+        <Button variant="gold" onClick={() => setShow(true)}>+ New Reminder</Button>
       </div>
 
       <Card className="p-4 mb-4">
         <div className="flex flex-wrap gap-3">
-          {isAdmin && (
-            <Select value={filter.assigned_to} onChange={(e) => setFilter({ ...filter, assigned_to: e.target.value })} className="max-w-xs">
-              <option value="">All people</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </Select>
-          )}
+          <Select value={filter.assigned_to} onChange={(e) => setFilter({ ...filter, assigned_to: e.target.value })} className="max-w-xs">
+            <option value="">All people</option>
+            <option value={user.id}>Assigned to me</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </Select>
           <Select value={filter.done} onChange={(e) => setFilter({ ...filter, done: e.target.value })} className="max-w-xs">
             <option value="">All tasks</option>
             <option value="0">Open only</option>
