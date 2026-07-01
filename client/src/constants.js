@@ -54,6 +54,13 @@ export const EXPENSE_CATEGORY_COLORS = {
   'Rent': '#8B5CF6', 'Equipment & Machine': '#EC4899', 'Delivery & Transport': '#14B8A6',
   'Supplies': '#F97316', 'Marketing': '#EF4444', 'Taxes & Fees': '#64748B', 'Miscellaneous': '#A3A3A3',
 };
+// Fixed color for known categories; deterministic HSL hue for custom ones.
+export function expenseColor(category) {
+  if (EXPENSE_CATEGORY_COLORS[category]) return EXPENSE_CATEGORY_COLORS[category];
+  let h = 0;
+  for (let i = 0; i < (category || '').length; i++) h = (h * 31 + category.charCodeAt(i)) % 360;
+  return `hsl(${h}, 62%, 52%)`;
+}
 
 // Payment methods (PH context).
 export const PAYMENT_METHODS = [

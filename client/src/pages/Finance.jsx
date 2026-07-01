@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_COLORS, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, peso, fmtDate } from '../constants';
+import { EXPENSE_CATEGORIES, expenseColor, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, peso, fmtDate } from '../constants';
 import { Card, Spinner, Button, Modal, Field, Input, Textarea, Select, ConfirmDialog } from '../components';
 
 const manageRoles = ['admin', 'finance'];
@@ -28,7 +28,7 @@ function CategoryPie({ data }) {
   let acc = 0;
   const stops = data.map((d) => {
     const start = (acc / total) * 100; acc += d.total; const end = (acc / total) * 100;
-    return `${EXPENSE_CATEGORY_COLORS[d.category] || '#A3A3A3'} ${start}% ${end}%`;
+    return `${expenseColor(d.category)} ${start}% ${end}%`;
   }).join(', ');
   return (
     <div className="flex items-center gap-6 flex-wrap">
@@ -36,7 +36,7 @@ function CategoryPie({ data }) {
       <div className="space-y-1.5 flex-1 min-w-[220px]">
         {data.map((d) => (
           <div key={d.category} className="flex items-center gap-2 text-sm">
-            <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ background: EXPENSE_CATEGORY_COLORS[d.category] || '#A3A3A3' }} />
+            <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ background: expenseColor(d.category) }} />
             <span className="text-gray-700">{d.category}</span>
             <span className="text-gray-500 ml-auto whitespace-nowrap">{peso(d.total)} · {Math.round((d.total / total) * 100)}%</span>
           </div>
@@ -65,31 +65,46 @@ function MonthlyBars({ data }) {
 }
 
 // ---- Add / edit expense modal (Expenses Input) -----------------------------
-function ExpenseModal({ expense, projects, onClose, onSaved }) {
+const ADD_NEW = '__add_new__';
+function ExpenseModal({ expense, projects, categories, staff, onCategoryAdded, onClose, onSaved }) {
   const editing = Boolean(expense);
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
-    category: expense?.category || EXPENSE_CATEGORIES[0],
+    category: expense?.category || categories[0] || '',
     description: expense?.description || '',
     amount: expense?.amount ?? '',
     vendor: expense?.vendor || '',
     method: expense?.method || 'cash',
     project_id: expense?.project_id ? String(expense.project_id) : '',
+    staff_id: expense?.staff_id ? String(expense.staff_id) : '',
     spent_on: expense?.spent_on || today,
   });
+  const [addingCat, setAddingCat] = useState(false);
+  const [newCat, setNewCat] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  function onCategorySelect(v) {
+    if (v === ADD_NEW) { setAddingCat(true); setNewCat(''); }
+    else { setAddingCat(false); set('category', v); }
+  }
+
   async function submit(e) {
     e.preventDefault();
-    if (!form.category) { setError('Category is required'); return; }
+    const category = (addingCat ? newCat : form.category).trim();
+    if (!category) { setError('Category is required'); return; }
     if (!form.amount || Number(form.amount) <= 0) { setError('Enter a positive amount'); return; }
     setBusy(true);
     try {
-      const body = { ...form, amount: Number(form.amount), project_id: form.project_id ? Number(form.project_id) : null };
+      const body = {
+        ...form, category, amount: Number(form.amount),
+        project_id: form.project_id ? Number(form.project_id) : null,
+        staff_id: form.staff_id ? Number(form.staff_id) : null,
+      };
       if (editing) await api.put(`/expenses/${expense.id}`, body);
       else await api.post('/expenses', body);
+      if (addingCat && !categories.includes(category)) onCategoryAdded?.(category);
       onSaved(); onClose();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -99,9 +114,17 @@ function ExpenseModal({ expense, projects, onClose, onSaved }) {
         {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category" required>
-            <Select value={form.category} onChange={(e) => set('category', e.target.value)}>
-              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Select>
+            {addingCat ? (
+              <div className="flex gap-1">
+                <Input autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category name" />
+                <button type="button" onClick={() => setAddingCat(false)} className="text-xs text-gray-500 px-2 shrink-0 hover:text-navy" title="Back to list">✕</button>
+              </div>
+            ) : (
+              <Select value={form.category} onChange={(e) => onCategorySelect(e.target.value)}>
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value={ADD_NEW}>➕ Add new category…</option>
+              </Select>
+            )}
           </Field>
           <Field label="Amount (₱)" required>
             <Input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} />
@@ -110,21 +133,27 @@ function ExpenseModal({ expense, projects, onClose, onSaved }) {
         <Field label="Description"><Textarea rows={2} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="What was this for?" /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Vendor / Paid to"><Input value={form.vendor} onChange={(e) => set('vendor', e.target.value)} placeholder="Supplier, staff, biller…" /></Field>
+          <Field label="Staff assigned">
+            <Select value={form.staff_id} onChange={(e) => set('staff_id', e.target.value)}>
+              <option value="">— Unassigned —</option>
+              {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Payment method">
             <Select value={form.method} onChange={(e) => set('method', e.target.value)}>
               {PAYMENT_METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </Select>
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <Field label="Date"><Input type="date" value={form.spent_on} onChange={(e) => set('spent_on', e.target.value)} /></Field>
-          <Field label="For Job Order (optional)">
-            <Select value={form.project_id} onChange={(e) => set('project_id', e.target.value)}>
-              <option value="">— None —</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.job_order_number}{p.project_name ? ` · ${p.project_name}` : ''}</option>)}
-            </Select>
-          </Field>
         </div>
+        <Field label="For Job Order (optional)">
+          <Select value={form.project_id} onChange={(e) => set('project_id', e.target.value)}>
+            <option value="">— None —</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.job_order_number}{p.project_name ? ` · ${p.project_name}` : ''}</option>)}
+          </Select>
+        </Field>
         <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="gold" disabled={busy}>{busy ? 'Saving…' : 'Save expense'}</Button></div>
       </form>
     </Modal>
@@ -137,16 +166,24 @@ export default function Finance() {
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [categories, setCategories] = useState(EXPENSE_CATEGORIES);
+  const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [f, setF] = useState({ from: '', to: '', category: '', method: '' });
+  const [f, setF] = useState({ from: '', to: '', category: '', method: '', staff_id: '' });
   const [modal, setModal] = useState(false);
   const [editExp, setEditExp] = useState(null);
   const [delExp, setDelExp] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
 
   async function loadCore() {
-    const [s, pr] = await Promise.all([api.get('/expenses/summary'), api.get('/projects')]);
+    const [s, pr, cats, users] = await Promise.all([
+      api.get('/expenses/summary'), api.get('/projects'),
+      api.get('/expenses/categories').catch(() => EXPENSE_CATEGORIES),
+      api.get('/users').catch(() => []),
+    ]);
     setSummary(s); setProjects(pr);
+    setCategories(cats.length ? cats : EXPENSE_CATEGORIES);
+    setStaff(users);
   }
   async function loadRows() {
     const params = new URLSearchParams();
@@ -165,9 +202,9 @@ export default function Finance() {
   }
 
   function exportCsv() {
-    const headers = ['Date', 'Category', 'Description', 'Vendor', 'Method', 'Job Order', 'Amount', 'Recorded By'];
+    const headers = ['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'Amount', 'Recorded By'];
     const lines = rows.map((r) => [
-      r.spent_on || '', r.category, r.description || '', r.vendor || '',
+      r.spent_on || '', r.category, r.description || '', r.vendor || '', r.staff_name || '',
       PAYMENT_METHOD_LABEL[r.method] || r.method, r.job_order_number || '', r.amount, r.recorded_by_name || '',
     ]);
     const csv = [headers, ...lines].map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -227,7 +264,7 @@ export default function Finance() {
               {summary.byCategory.length === 0 && <tr><td colSpan={4} className="text-center text-gray-400 py-8">No expenses recorded yet.</td></tr>}
               {summary.byCategory.map((c) => (
                 <tr key={c.category} className="hover:bg-cloud">
-                  <td className="px-4 py-2.5"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-2" style={{ background: EXPENSE_CATEGORY_COLORS[c.category] || '#A3A3A3' }} />{c.category}</td>
+                  <td className="px-4 py-2.5"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-2" style={{ background: expenseColor(c.category) }} />{c.category}</td>
                   <td className="px-4 py-2.5 text-gray-600">{c.count}</td>
                   <td className="px-4 py-2.5 font-semibold text-navy">{peso(c.total)}</td>
                   <td className="px-4 py-2.5 text-gray-500">{summary.total ? Math.round((c.total / summary.total) * 100) : 0}%</td>
@@ -247,13 +284,18 @@ export default function Finance() {
         <span className="text-sm text-gray-500">Showing {rows.length} · {peso(filteredTotal)}</span>
       </div>
       <Card className="p-4 mb-3 print:hidden">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">From</span><Input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">To</span><Input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">Category</span>
             <Select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
               <option value="">All categories</option>
-              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </Select></label>
+          <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">Staff</span>
+            <Select value={f.staff_id} onChange={(e) => setF({ ...f, staff_id: e.target.value })}>
+              <option value="">All staff</option>
+              {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">Method</span>
             <Select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
@@ -266,16 +308,17 @@ export default function Finance() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
-              <tr>{['Date', 'Category', 'Description', 'Vendor', 'Method', 'Job Order', 'Amount'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th className="print:hidden" />}</tr>
+              <tr>{['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'Amount'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th className="print:hidden" />}</tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.length === 0 && <tr><td colSpan={8} className="text-center text-gray-400 py-10">No expenses match your filters.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={9} className="text-center text-gray-400 py-10">No expenses match your filters.</td></tr>}
               {rows.map((r) => (
                 <tr key={r.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(r.spent_on)}</td>
-                  <td className="px-4 py-3 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-2" style={{ background: EXPENSE_CATEGORY_COLORS[r.category] || '#A3A3A3' }} />{r.category}</td>
+                  <td className="px-4 py-3 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-2" style={{ background: expenseColor(r.category) }} />{r.category}</td>
                   <td className="px-4 py-3 text-gray-600 max-w-[240px] truncate" title={r.description || ''}>{r.description || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{r.vendor || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{r.staff_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{PAYMENT_METHOD_LABEL[r.method] || r.method}</td>
                   <td className="px-4 py-3 text-gray-500">{r.job_order_number || '—'}</td>
                   <td className="px-4 py-3 font-semibold text-red-600 whitespace-nowrap">{peso(r.amount)}</td>
@@ -292,8 +335,8 @@ export default function Finance() {
         </div>
       </Card>
 
-      {modal && <ExpenseModal projects={projects} onClose={() => setModal(false)} onSaved={refresh} />}
-      {editExp && <ExpenseModal expense={editExp} projects={projects} onClose={() => setEditExp(null)} onSaved={refresh} />}
+      {modal && <ExpenseModal projects={projects} categories={categories} staff={staff} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onClose={() => setModal(false)} onSaved={refresh} />}
+      {editExp && <ExpenseModal expense={editExp} projects={projects} categories={categories} staff={staff} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onClose={() => setEditExp(null)} onSaved={refresh} />}
       {delExp && (
         <ConfirmDialog title="Delete this expense?" message={`${delExp.category} · ${peso(delExp.amount)} on ${fmtDate(delExp.spent_on)}. This cannot be undone.`}
           confirmLabel="Delete expense" busy={delBusy} onConfirm={confirmDelete} onClose={() => setDelExp(null)} />
