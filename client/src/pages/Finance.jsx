@@ -66,7 +66,7 @@ function MonthlyBars({ data }) {
 
 // ---- Add / edit expense modal (Expenses Input) -----------------------------
 const ADD_NEW = '__add_new__';
-function ExpenseModal({ expense, projects, categories, staff, onCategoryAdded, onClose, onSaved }) {
+function ExpenseModal({ expense, projects, categories, staffNames, onCategoryAdded, onStaffAdded, onClose, onSaved }) {
   const editing = Boolean(expense);
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
@@ -76,11 +76,13 @@ function ExpenseModal({ expense, projects, categories, staff, onCategoryAdded, o
     vendor: expense?.vendor || '',
     method: expense?.method || 'cash',
     project_id: expense?.project_id ? String(expense.project_id) : '',
-    staff_id: expense?.staff_id ? String(expense.staff_id) : '',
+    staff_name: expense?.staff_name || '',
     spent_on: expense?.spent_on || today,
   });
   const [addingCat, setAddingCat] = useState(false);
   const [newCat, setNewCat] = useState('');
+  // Existing custom staff name that isn't in the known list starts in "add" mode.
+  const [addingStaff, setAddingStaff] = useState(Boolean(expense?.staff_name && !staffNames.includes(expense.staff_name)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -89,22 +91,28 @@ function ExpenseModal({ expense, projects, categories, staff, onCategoryAdded, o
     if (v === ADD_NEW) { setAddingCat(true); setNewCat(''); }
     else { setAddingCat(false); set('category', v); }
   }
+  function onStaffSelect(v) {
+    if (v === ADD_NEW) { setAddingStaff(true); set('staff_name', ''); }
+    else { setAddingStaff(false); set('staff_name', v); }
+  }
 
   async function submit(e) {
     e.preventDefault();
     const category = (addingCat ? newCat : form.category).trim();
+    const staff_name = form.staff_name.trim();
     if (!category) { setError('Category is required'); return; }
+    if (!staff_name) { setError('Please assign a staff (select or add a name)'); return; }
     if (!form.amount || Number(form.amount) <= 0) { setError('Enter a positive amount'); return; }
     setBusy(true);
     try {
       const body = {
-        ...form, category, amount: Number(form.amount),
+        ...form, category, staff_name, amount: Number(form.amount),
         project_id: form.project_id ? Number(form.project_id) : null,
-        staff_id: form.staff_id ? Number(form.staff_id) : null,
       };
       if (editing) await api.put(`/expenses/${expense.id}`, body);
       else await api.post('/expenses', body);
       if (addingCat && !categories.includes(category)) onCategoryAdded?.(category);
+      if (!staffNames.includes(staff_name)) onStaffAdded?.(staff_name);
       onSaved(); onClose();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -133,11 +141,19 @@ function ExpenseModal({ expense, projects, categories, staff, onCategoryAdded, o
         <Field label="Description"><Textarea rows={2} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="What was this for?" /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Vendor / Paid to"><Input value={form.vendor} onChange={(e) => set('vendor', e.target.value)} placeholder="Supplier, staff, biller…" /></Field>
-          <Field label="Staff assigned">
-            <Select value={form.staff_id} onChange={(e) => set('staff_id', e.target.value)}>
-              <option value="">— Unassigned —</option>
-              {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </Select>
+          <Field label="Staff assigned" required>
+            {addingStaff ? (
+              <div className="flex gap-1">
+                <Input autoFocus value={form.staff_name} onChange={(e) => set('staff_name', e.target.value)} placeholder="Staff name" />
+                {staffNames.length > 0 && <button type="button" onClick={() => setAddingStaff(false)} className="text-xs text-gray-500 px-2 shrink-0 hover:text-navy" title="Back to list">✕</button>}
+              </div>
+            ) : (
+              <Select value={form.staff_name} onChange={(e) => onStaffSelect(e.target.value)}>
+                <option value="">— Select staff —</option>
+                {staffNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                <option value={ADD_NEW}>➕ Add new staff…</option>
+              </Select>
+            )}
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -167,23 +183,23 @@ export default function Finance() {
   const [rows, setRows] = useState([]);
   const [projects, setProjects] = useState([]);
   const [categories, setCategories] = useState(EXPENSE_CATEGORIES);
-  const [staff, setStaff] = useState([]);
+  const [staffNames, setStaffNames] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [f, setF] = useState({ from: '', to: '', category: '', method: '', staff_id: '' });
+  const [f, setF] = useState({ from: '', to: '', category: '', method: '', staff: '' });
   const [modal, setModal] = useState(false);
   const [editExp, setEditExp] = useState(null);
   const [delExp, setDelExp] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
 
   async function loadCore() {
-    const [s, pr, cats, users] = await Promise.all([
+    const [s, pr, cats, names] = await Promise.all([
       api.get('/expenses/summary'), api.get('/projects'),
       api.get('/expenses/categories').catch(() => EXPENSE_CATEGORIES),
-      api.get('/users').catch(() => []),
+      api.get('/expenses/staff').catch(() => []),
     ]);
     setSummary(s); setProjects(pr);
     setCategories(cats.length ? cats : EXPENSE_CATEGORIES);
-    setStaff(users);
+    setStaffNames(names);
   }
   async function loadRows() {
     const params = new URLSearchParams();
@@ -293,9 +309,9 @@ export default function Finance() {
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </Select></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">Staff</span>
-            <Select value={f.staff_id} onChange={(e) => setF({ ...f, staff_id: e.target.value })}>
+            <Select value={f.staff} onChange={(e) => setF({ ...f, staff: e.target.value })}>
               <option value="">All staff</option>
-              {staff.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              {staffNames.map((n) => <option key={n} value={n}>{n}</option>)}
             </Select></label>
           <label className="block"><span className="block text-xs font-semibold text-gray-500 mb-1">Method</span>
             <Select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
@@ -335,8 +351,8 @@ export default function Finance() {
         </div>
       </Card>
 
-      {modal && <ExpenseModal projects={projects} categories={categories} staff={staff} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onClose={() => setModal(false)} onSaved={refresh} />}
-      {editExp && <ExpenseModal expense={editExp} projects={projects} categories={categories} staff={staff} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onClose={() => setEditExp(null)} onSaved={refresh} />}
+      {modal && <ExpenseModal projects={projects} categories={categories} staffNames={staffNames} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onStaffAdded={(n) => setStaffNames((ns) => [...ns, n])} onClose={() => setModal(false)} onSaved={refresh} />}
+      {editExp && <ExpenseModal expense={editExp} projects={projects} categories={categories} staffNames={staffNames} onCategoryAdded={(c) => setCategories((cs) => [...cs, c])} onStaffAdded={(n) => setStaffNames((ns) => [...ns, n])} onClose={() => setEditExp(null)} onSaved={refresh} />}
       {delExp && (
         <ConfirmDialog title="Delete this expense?" message={`${delExp.category} · ${peso(delExp.amount)} on ${fmtDate(delExp.spent_on)}. This cannot be undone.`}
           confirmLabel="Delete expense" busy={delBusy} onConfirm={confirmDelete} onClose={() => setDelExp(null)} />

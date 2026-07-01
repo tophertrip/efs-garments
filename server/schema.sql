@@ -115,11 +115,13 @@ CREATE TABLE IF NOT EXISTS expenses (
   method TEXT DEFAULT 'cash',
   project_id INTEGER REFERENCES projects(id),
   staff_id INTEGER REFERENCES users(id),
+  staff_name TEXT,
   spent_on DATE,
   recorded_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_id INTEGER REFERENCES users(id);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_name TEXT;
 
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (

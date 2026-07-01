@@ -819,6 +819,52 @@ app.post('/api/expenses/categories', auth, finGuard, wrap(async (req, res) => {
   res.status(201).json({ ok: true, categories: await listExpenseCategories() });
 }));
 
+// Staff names for the "Staff assigned" field — free-text names (not limited to
+// app user accounts). Merges saved user names, custom names, and names in use.
+async function readCustomStaff() {
+  const row = await get("SELECT value FROM app_settings WHERE key='expense_staff'");
+  try { return row ? JSON.parse(row.value) : []; } catch { return []; }
+}
+async function listExpenseStaff() {
+  const [users, custom, used] = await Promise.all([
+    query('SELECT name FROM users'),
+    readCustomStaff(),
+    query("SELECT DISTINCT staff_name FROM expenses WHERE staff_name IS NOT NULL AND staff_name <> ''"),
+  ]);
+  const seen = new Set();
+  const out = [];
+  for (const c of [...users.map((u) => u.name), ...custom, ...used.map((r) => r.staff_name)]) {
+    const name = (c || '').trim();
+    if (name && !seen.has(name.toLowerCase())) { seen.add(name.toLowerCase()); out.push(name); }
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+async function rememberStaff(name) {
+  name = String(name || '').trim();
+  if (!name) return;
+  const existing = await listExpenseStaff();
+  if (existing.some((n) => n.toLowerCase() === name.toLowerCase())) return;
+  const custom = await readCustomStaff();
+  custom.push(name);
+  const val = JSON.stringify(custom);
+  const row = await get("SELECT value FROM app_settings WHERE key='expense_staff'");
+  if (row) await run("UPDATE app_settings SET value=? WHERE key='expense_staff'", [val]);
+  else await run("INSERT INTO app_settings (key, value) VALUES ('expense_staff', ?)", [val]);
+}
+
+// Staff name list for the expense form.
+app.get('/api/expenses/staff', auth, wrap(async (req, res) => {
+  res.json(await listExpenseStaff());
+}));
+
+// Add a staff name up-front (also happens automatically on save).
+app.post('/api/expenses/staff', auth, finGuard, wrap(async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Staff name is required' });
+  await rememberStaff(name);
+  res.status(201).json({ ok: true, staff: await listExpenseStaff() });
+}));
+
 // Summary: totals, by-category, monthly trend, and net vs. collected income.
 app.get('/api/expenses/summary', auth, wrap(async (req, res) => {
   const ym = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -843,7 +889,7 @@ app.get('/api/expenses/summary', auth, wrap(async (req, res) => {
 
 // List expenses (filters: from, to, category, method, project_id, staff_id).
 app.get('/api/expenses', auth, wrap(async (req, res) => {
-  const { from, to, category, method, project_id, staff_id } = req.query;
+  const { from, to, category, method, project_id, staff } = req.query;
   const where = [];
   const params = [];
   if (from) { where.push('e.spent_on >= ?'); params.push(from); }
@@ -851,11 +897,11 @@ app.get('/api/expenses', auth, wrap(async (req, res) => {
   if (category) { where.push('e.category = ?'); params.push(category); }
   if (method) { where.push('e.method = ?'); params.push(method); }
   if (project_id) { where.push('e.project_id = ?'); params.push(project_id); }
-  if (staff_id) { where.push('e.staff_id = ?'); params.push(staff_id); }
+  if (staff) { where.push('COALESCE(e.staff_name, s.name) = ?'); params.push(staff); }
   const rows = await query(`
     SELECT e.id, e.category, e.description, e.amount::float AS amount, e.vendor, e.method,
            e.spent_on, e.created_at, e.project_id, p.job_order_number, p.project_name,
-           e.staff_id, s.name AS staff_name,
+           COALESCE(e.staff_name, s.name) AS staff_name,
            u.name AS recorded_by_name
     FROM expenses e
     LEFT JOIN projects p ON p.id = e.project_id
@@ -869,32 +915,36 @@ app.get('/api/expenses', auth, wrap(async (req, res) => {
 
 // Record an expense.
 app.post('/api/expenses', auth, finGuard, wrap(async (req, res) => {
-  const { category, description, amount, vendor, method, project_id, staff_id, spent_on } = req.body;
+  const { category, description, amount, vendor, method, project_id, staff_name, spent_on } = req.body;
   const cat = String(category || '').trim();
+  const staff = String(staff_name || '').trim() || null;
   const amt = Number(amount);
   if (!cat) return res.status(400).json({ error: 'Category is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
   const today = new Date().toISOString().slice(0, 10);
   const inserted = await run(`
-    INSERT INTO expenses (category, description, amount, vendor, method, project_id, staff_id, spent_on, recorded_by)
+    INSERT INTO expenses (category, description, amount, vendor, method, project_id, staff_name, spent_on, recorded_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff_id || null, spent_on || today, req.user.id]);
+  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, spent_on || today, req.user.id]);
   await rememberCategory(cat);
+  if (staff) await rememberStaff(staff);
   res.status(201).json({ id: inserted.rows[0].id });
 }));
 
 // Edit an expense.
 app.put('/api/expenses/:id', auth, finGuard, wrap(async (req, res) => {
-  const { category, description, amount, vendor, method, project_id, staff_id, spent_on } = req.body;
+  const { category, description, amount, vendor, method, project_id, staff_name, spent_on } = req.body;
   const cat = String(category || '').trim();
+  const staff = String(staff_name || '').trim() || null;
   const amt = Number(amount);
   if (!cat) return res.status(400).json({ error: 'Category is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
   await run(`
-    UPDATE expenses SET category=?, description=?, amount=?, vendor=?, method=?, project_id=?, staff_id=?, spent_on=?
+    UPDATE expenses SET category=?, description=?, amount=?, vendor=?, method=?, project_id=?, staff_name=?, staff_id=NULL, spent_on=?
     WHERE id=?
-  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff_id || null, spent_on || null, req.params.id]);
+  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, spent_on || null, req.params.id]);
   await rememberCategory(cat);
+  if (staff) await rememberStaff(staff);
   res.json({ ok: true });
 }));
 
