@@ -37,7 +37,7 @@ export const TABS = [
   { key: 'payments',  label: 'Payments',  icon: '💳', to: '/payments' },
   { key: 'finance',   label: 'Finance',   icon: '💵', to: '/finance' },
   { key: 'inventory', label: 'Inventory', icon: '📦', to: '/inventory' },
-  { key: 'store',     label: 'Store',     icon: '🏪', to: '/store' },
+  { key: 'store',     label: 'Point of Sale', icon: '🛒', to: '/store' },
   { key: 'tasks',     label: 'Tasks',     icon: '🔔', to: '/tasks' },
 ];
 

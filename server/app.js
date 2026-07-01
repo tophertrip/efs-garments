@@ -1133,6 +1133,111 @@ app.delete('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// POS sales -----------------------------------------------------------------
+// Record a sale (any signed-in user can ring a sale). Totals are computed
+// server-side from the line items so they can't be tampered with.
+app.post('/api/store/sales', auth, wrap(async (req, res) => {
+  const { store_id, customer_name, payment_method, items } = req.body;
+  if (!store_id) return res.status(400).json({ error: 'Select a store first' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Add at least one product' });
+
+  // Build line items with a snapshot of product name/sku.
+  const lines = [];
+  let subtotal = 0, discountTotal = 0;
+  for (const it of items) {
+    const qty = Number(it.qty);
+    const price = Number(it.unit_price);
+    const disc = Math.max(0, Number(it.discount) || 0);
+    if (!it.product_id || !qty || qty <= 0) continue;
+    const prod = await get('SELECT name, sku FROM store_products WHERE id = ?', [it.product_id]);
+    const lineTotal = Math.max(0, qty * price - disc);
+    subtotal += qty * price;
+    discountTotal += disc;
+    lines.push({ product_id: it.product_id, name: prod?.name || '', sku: prod?.sku || null, qty, unit_price: price, discount: disc, line_total: lineTotal });
+  }
+  if (lines.length === 0) return res.status(400).json({ error: 'Add at least one valid product line' });
+  const total = Math.max(0, subtotal - discountTotal);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const saleRes = await client.query(
+      `INSERT INTO store_sales (store_id, customer_name, subtotal, discount, total, payment_method, sold_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [store_id, customer_name || null, subtotal, discountTotal, total, payment_method || 'cash', req.user.id]
+    );
+    const saleId = saleRes.rows[0].id;
+    for (const l of lines) {
+      await client.query(
+        `INSERT INTO store_sale_items (sale_id, product_id, name, sku, qty, unit_price, discount, line_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [saleId, l.product_id, l.name, l.sku, l.qty, l.unit_price, l.discount, l.line_total]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ id: saleId, subtotal, discount: discountTotal, total });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}));
+
+// List sales (filters: from, to, store_id).
+app.get('/api/store/sales', auth, wrap(async (req, res) => {
+  const { from, to, store_id } = req.query;
+  const where = [];
+  const params = [];
+  if (from) { where.push('sa.sold_at::date >= ?'); params.push(from); }
+  if (to) { where.push('sa.sold_at::date <= ?'); params.push(to); }
+  if (store_id) { where.push('sa.store_id = ?'); params.push(store_id); }
+  const rows = await query(`
+    SELECT sa.id, sa.customer_name, sa.subtotal::float AS subtotal, sa.discount::float AS discount,
+           sa.total::float AS total, sa.payment_method, sa.sold_at,
+           st.name AS store_name, u.name AS sold_by_name,
+           (SELECT COUNT(*)::int FROM store_sale_items si WHERE si.sale_id = sa.id) AS item_count
+    FROM store_sales sa
+    LEFT JOIN stores st ON st.id = sa.store_id
+    LEFT JOIN users u ON u.id = sa.sold_by
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY sa.sold_at DESC, sa.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+// Sales summary for the POS dashboard + sales report sync.
+// NOTE: must be declared before '/:id' so 'summary' isn't matched as an id.
+app.get('/api/store/sales/summary', auth, wrap(async (req, res) => {
+  const ymd = new Date().toISOString().slice(0, 10);
+  const ym = ymd.slice(0, 7);
+  const [tot, today, month, byStore, byDay] = await Promise.all([
+    get('SELECT COALESCE(SUM(total),0)::float AS total, COUNT(*)::int AS count FROM store_sales'),
+    get("SELECT COALESCE(SUM(total),0)::float AS total, COUNT(*)::int AS count FROM store_sales WHERE sold_at::date = ?", [ymd]),
+    get("SELECT COALESCE(SUM(total),0)::float AS total FROM store_sales WHERE to_char(sold_at,'YYYY-MM') = ?", [ym]),
+    query('SELECT st.name AS store, COALESCE(SUM(sa.total),0)::float AS total, COUNT(*)::int AS count FROM store_sales sa LEFT JOIN stores st ON st.id = sa.store_id GROUP BY st.name ORDER BY total DESC'),
+    query("SELECT sold_at::date AS day, SUM(total)::float AS total FROM store_sales GROUP BY 1 ORDER BY 1 DESC LIMIT 7"),
+  ]);
+  res.json({
+    total: tot.total, count: tot.count,
+    today: today.total, todayCount: today.count,
+    thisMonth: month.total,
+    byStore, byDay: byDay.reverse(),
+  });
+}));
+
+// One sale + its line items (receipt).
+app.get('/api/store/sales/:id', auth, wrap(async (req, res) => {
+  const sale = await get(`
+    SELECT sa.*, st.name AS store_name, u.name AS sold_by_name
+    FROM store_sales sa LEFT JOIN stores st ON st.id = sa.store_id LEFT JOIN users u ON u.id = sa.sold_by
+    WHERE sa.id = ?
+  `, [req.params.id]);
+  if (!sale) return res.status(404).json({ error: 'Sale not found' });
+  sale.items = await query('SELECT *, qty::float AS qty, unit_price::float AS unit_price, discount::float AS discount, line_total::float AS line_total FROM store_sale_items WHERE sale_id = ? ORDER BY id', [req.params.id]);
+  res.json(sale);
+}));
+
 // ---------------------------------------------------------------------------
 // Full-database backup / restore / reset (admin only).
 // Backup is a JSON snapshot of every table; restore replaces all data with a
@@ -1143,19 +1248,19 @@ app.delete('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
 const BACKUP_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
-  'stores', 'store_products', 'store_prices', 'app_settings',
+  'stores', 'store_products', 'store_prices', 'store_sales', 'store_sale_items', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
-  'stores', 'store_products', 'store_prices',
+  'stores', 'store_products', 'store_prices', 'store_sales', 'store_sale_items',
 ];
 // Operational data cleared by a reset (reverse dependency order). Users,
 // app_settings and categories are intentionally preserved so login + role
 // permissions keep working after a reset.
 const RESET_TABLES = [
-  'store_prices', 'store_products', 'stores',
+  'store_sale_items', 'store_sales', 'store_prices', 'store_products', 'stores',
   'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
 ];
 

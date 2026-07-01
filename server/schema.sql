@@ -149,6 +149,31 @@ CREATE TABLE IF NOT EXISTS store_prices (
   UNIQUE (product_id, store_id)
 );
 
+-- POS sales (header) + line items. Sales sync into the sales report.
+CREATE TABLE IF NOT EXISTS store_sales (
+  id SERIAL PRIMARY KEY,
+  store_id INTEGER REFERENCES stores(id),
+  customer_name TEXT,
+  subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
+  discount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  total NUMERIC(10,2) NOT NULL DEFAULT 0,
+  payment_method TEXT DEFAULT 'cash',
+  sold_by INTEGER REFERENCES users(id),
+  sold_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS store_sale_items (
+  id SERIAL PRIMARY KEY,
+  sale_id INTEGER REFERENCES store_sales(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES store_products(id),
+  name TEXT,
+  sku TEXT,
+  qty NUMERIC(10,2) NOT NULL,
+  unit_price NUMERIC(10,2) NOT NULL,
+  discount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  line_total NUMERIC(10,2) NOT NULL
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

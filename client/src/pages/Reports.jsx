@@ -55,6 +55,7 @@ export default function Reports() {
   const [opts, setOpts] = useState({ groupBy: 'month', dateField: 'created', from: '', to: '', status: 'all' });
   const [data, setData] = useState(null);
   const [finance, setFinance] = useState(null);
+  const [posSales, setPosSales] = useState(null);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState('revenue'); // which measure the bars show
 
@@ -66,6 +67,8 @@ export default function Reports() {
     setData(d);
     // Finance summary: actual collections (payments) — current snapshot.
     setFinance(await api.get('/payments/summary'));
+    // POS / store sales — synced from the Point of Sale module.
+    setPosSales(await api.get('/store/sales/summary').catch(() => null));
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [opts]);
@@ -170,6 +173,38 @@ export default function Reports() {
             <span className="text-yellow-700">🟡 Partial: <b>{finance.partiallyPaid}</b></span>
             <span className="text-red-600">🔴 Unpaid: <b>{finance.unpaid}</b></span>
           </div>
+        </Card>
+      )}
+
+      {/* POS / Store sales — synced from the Point of Sale module */}
+      {posSales && posSales.count > 0 && (
+        <Card className="p-5 mb-6">
+          <h2 className="font-bold text-navy mb-4">🛒 Point of Sale <span className="text-xs font-normal text-gray-400">(store sales synced from POS)</span></h2>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="rounded-xl p-5 bg-navy text-white">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total POS Sales</div>
+              <div className="text-2xl font-extrabold mt-1">{peso(posSales.total)}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-emerald-50 border border-emerald-200">
+              <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales Today</div>
+              <div className="text-2xl font-extrabold text-emerald-800 mt-1">{peso(posSales.today)}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-amber-50 border border-amber-200">
+              <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">This Month</div>
+              <div className="text-2xl font-extrabold text-amber-800 mt-1">{peso(posSales.thisMonth)}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions</div>
+              <div className="text-2xl font-extrabold text-navy mt-1">{posSales.count}</div>
+            </div>
+          </div>
+          {posSales.byStore.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+              {posSales.byStore.map((s) => (
+                <span key={s.store || 'none'}><span className="font-semibold text-navy">{s.store || '—'}:</span> {peso(s.total)} <span className="text-gray-400">({s.count})</span></span>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
