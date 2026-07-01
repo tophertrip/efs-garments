@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS inventory_txns (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Expenses (business spending — categorized for finance reporting).
+CREATE TABLE IF NOT EXISTS expenses (
+  id SERIAL PRIMARY KEY,
+  category TEXT NOT NULL,
+  description TEXT,
+  amount NUMERIC(10,2) NOT NULL,
+  vendor TEXT,
+  method TEXT DEFAULT 'cash',
+  project_id INTEGER REFERENCES projects(id),
+  spent_on DATE,
+  recorded_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

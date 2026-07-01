@@ -41,9 +41,9 @@ function admin(req, res, next) {
 
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
-  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'inventory', 'tasks'],
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'inventory', 'tasks'],
   marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
-  finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'tasks'],
+  finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'tasks'],
   purchasing: ['calendar', 'inventory', 'tasks'],
   printing: ['calendar', 'tasks'],
   cutting_sewing: ['calendar', 'tasks'],
@@ -763,6 +763,93 @@ app.delete('/api/payments/:id', auth, wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// EXPENSES — categorized business spending + finance summary/reporting
+// ---------------------------------------------------------------------------
+// Only admin/finance may add, edit or delete expenses.
+function finGuard(req, res, next) {
+  if (!['admin', 'finance'].includes(req.user?.role)) return res.status(403).json({ error: 'Only admin or finance can manage expenses' });
+  next();
+}
+
+// Summary: totals, by-category, monthly trend, and net vs. collected income.
+app.get('/api/expenses/summary', auth, wrap(async (req, res) => {
+  const ym = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const [tot, month, byCat, byMonth] = await Promise.all([
+    get('SELECT COALESCE(SUM(amount),0)::float AS total, COUNT(*)::int AS count FROM expenses'),
+    get("SELECT COALESCE(SUM(amount),0)::float AS total FROM expenses WHERE to_char(spent_on,'YYYY-MM') = ?", [ym]),
+    query('SELECT category, SUM(amount)::float AS total, COUNT(*)::int AS count FROM expenses GROUP BY category ORDER BY total DESC'),
+    query("SELECT to_char(spent_on,'YYYY-MM') AS month, SUM(amount)::float AS total FROM expenses WHERE spent_on IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 6"),
+  ]);
+  // Income = payments collected (so finance can see net cash flow).
+  const inc = await get('SELECT COALESCE(SUM(amount),0)::float AS total FROM payments');
+  res.json({
+    total: tot.total,
+    count: tot.count,
+    thisMonth: month.total,
+    income: inc.total,
+    net: inc.total - tot.total,
+    byCategory: byCat,
+    byMonth: byMonth.reverse(),
+  });
+}));
+
+// List expenses (filters: from, to, category, method, project_id).
+app.get('/api/expenses', auth, wrap(async (req, res) => {
+  const { from, to, category, method, project_id } = req.query;
+  const where = [];
+  const params = [];
+  if (from) { where.push('e.spent_on >= ?'); params.push(from); }
+  if (to) { where.push('e.spent_on <= ?'); params.push(to); }
+  if (category) { where.push('e.category = ?'); params.push(category); }
+  if (method) { where.push('e.method = ?'); params.push(method); }
+  if (project_id) { where.push('e.project_id = ?'); params.push(project_id); }
+  const rows = await query(`
+    SELECT e.id, e.category, e.description, e.amount::float AS amount, e.vendor, e.method,
+           e.spent_on, e.created_at, e.project_id, p.job_order_number, p.project_name,
+           u.name AS recorded_by_name
+    FROM expenses e
+    LEFT JOIN projects p ON p.id = e.project_id
+    LEFT JOIN users u ON u.id = e.recorded_by
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY e.spent_on DESC NULLS LAST, e.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+// Record an expense.
+app.post('/api/expenses', auth, finGuard, wrap(async (req, res) => {
+  const { category, description, amount, vendor, method, project_id, spent_on } = req.body;
+  const amt = Number(amount);
+  if (!category) return res.status(400).json({ error: 'Category is required' });
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
+  const today = new Date().toISOString().slice(0, 10);
+  const inserted = await run(`
+    INSERT INTO expenses (category, description, amount, vendor, method, project_id, spent_on, recorded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+  `, [category, description || null, amt, vendor || null, method || 'cash', project_id || null, spent_on || today, req.user.id]);
+  res.status(201).json({ id: inserted.rows[0].id });
+}));
+
+// Edit an expense.
+app.put('/api/expenses/:id', auth, finGuard, wrap(async (req, res) => {
+  const { category, description, amount, vendor, method, project_id, spent_on } = req.body;
+  const amt = Number(amount);
+  if (!category) return res.status(400).json({ error: 'Category is required' });
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
+  await run(`
+    UPDATE expenses SET category=?, description=?, amount=?, vendor=?, method=?, project_id=?, spent_on=?
+    WHERE id=?
+  `, [category, description || null, amt, vendor || null, method || 'cash', project_id || null, spent_on || null, req.params.id]);
+  res.json({ ok: true });
+}));
+
+// Delete an expense.
+app.delete('/api/expenses/:id', auth, finGuard, wrap(async (req, res) => {
+  await run('DELETE FROM expenses WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // INVENTORY — items + IN/OUT stock transactions (per item, per size)
 // ---------------------------------------------------------------------------
 function invManage(req, res, next) {
@@ -872,18 +959,18 @@ app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => 
 // on restore; delete in reverse.
 const BACKUP_TABLES = [
   'users', 'customers', 'categories', 'projects',
-  'project_logs', 'tasks', 'payments', 'inventory_items', 'inventory_txns', 'app_settings',
+  'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
   'users', 'customers', 'categories', 'projects',
-  'project_logs', 'tasks', 'payments', 'inventory_items', 'inventory_txns',
+  'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
 ];
 // Operational data cleared by a reset (reverse dependency order). Users,
 // app_settings and categories are intentionally preserved so login + role
 // permissions keep working after a reset.
 const RESET_TABLES = [
-  'inventory_txns', 'inventory_items', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
+  'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
 ];
 
 // Download a full snapshot of the database.
