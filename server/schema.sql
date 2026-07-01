@@ -123,6 +123,32 @@ CREATE TABLE IF NOT EXISTS expenses (
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_id INTEGER REFERENCES users(id);
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_name TEXT;
 
+-- Store module — products + per-store pricing across multiple stores.
+CREATE TABLE IF NOT EXISTS stores (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  location TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS store_products (
+  id SERIAL PRIMARY KEY,
+  sku TEXT,
+  name TEXT NOT NULL,
+  category TEXT,
+  description TEXT,
+  uom TEXT DEFAULT 'pcs',
+  status TEXT DEFAULT 'active',   -- 'active' | 'inactive'
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS store_prices (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER REFERENCES store_products(id) ON DELETE CASCADE,
+  store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+  price NUMERIC(10,2),
+  UNIQUE (product_id, store_id)
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

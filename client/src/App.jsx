@@ -16,6 +16,7 @@ import OwnerDashboard from './pages/OwnerDashboard';
 import Payments from './pages/Payments';
 import Finance from './pages/Finance';
 import Inventory from './pages/Inventory';
+import Store from './pages/Store';
 
 function Protected({ children, adminOnly, tab }) {
   const { user, isAdmin } = useAuth();
@@ -48,6 +49,7 @@ export default function App() {
       <Route path="/payments" element={<Protected tab="payments"><Payments /></Protected>} />
       <Route path="/finance" element={<Protected tab="finance"><Finance /></Protected>} />
       <Route path="/inventory" element={<Protected tab="inventory"><Inventory /></Protected>} />
+      <Route path="/store" element={<Protected tab="store"><Store /></Protected>} />
       <Route path="/tasks" element={<Protected tab="tasks"><Tasks /></Protected>} />
       <Route path="/users" element={<Protected adminOnly><UserManagement /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />

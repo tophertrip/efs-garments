@@ -249,11 +249,10 @@ export default function Finance() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <Kpi label="Total Expenses" value={peso(summary.total)} sub={`${summary.count} transaction${summary.count !== 1 ? 's' : ''}`} tone="red" />
         <Kpi label="Expenses This Month" value={peso(summary.thisMonth)} tone="orange" />
         <Kpi label="Income Collected" value={peso(summary.income)} sub="from payments" tone="green" />
-        <Kpi label="Net Cash Flow" value={peso(summary.net)} sub={summary.net >= 0 ? 'profit' : 'loss'} tone={summary.net >= 0 ? 'green' : 'red'} />
       </div>
 
       {/* Charts */}

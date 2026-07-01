@@ -41,7 +41,7 @@ function admin(req, res, next) {
 
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
-  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'inventory', 'tasks'],
+  admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'inventory', 'store', 'tasks'],
   marketing: ['dashboard', 'projects', 'calendar', 'customers', 'tasks'],
   finance: ['projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'tasks'],
   purchasing: ['calendar', 'inventory', 'tasks'],
@@ -881,7 +881,6 @@ app.get('/api/expenses/summary', auth, wrap(async (req, res) => {
     count: tot.count,
     thisMonth: month.total,
     income: inc.total,
-    net: inc.total - tot.total,
     byCategory: byCat,
     byMonth: byMonth.reverse(),
   });
@@ -1056,6 +1055,85 @@ app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => 
 }));
 
 // ---------------------------------------------------------------------------
+// STORE — products + per-store pricing across multiple stores (admin-managed)
+// ---------------------------------------------------------------------------
+// Stores -------------------------------------------------------------------
+app.get('/api/stores', auth, wrap(async (req, res) => {
+  res.json(await query('SELECT * FROM stores ORDER BY name'));
+}));
+app.post('/api/stores', auth, admin, wrap(async (req, res) => {
+  const { name, location, is_active } = req.body;
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Store name is required' });
+  const r = await run('INSERT INTO stores (name, location, is_active) VALUES (?, ?, ?) RETURNING id',
+    [name.trim(), location || null, is_active === false ? false : true]);
+  res.status(201).json({ id: r.rows[0].id });
+}));
+app.put('/api/stores/:id', auth, admin, wrap(async (req, res) => {
+  const { name, location, is_active } = req.body;
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Store name is required' });
+  await run('UPDATE stores SET name=?, location=?, is_active=? WHERE id=?',
+    [name.trim(), location || null, is_active === false ? false : true, req.params.id]);
+  res.json({ ok: true });
+}));
+app.delete('/api/stores/:id', auth, admin, wrap(async (req, res) => {
+  await run('DELETE FROM store_prices WHERE store_id = ?', [req.params.id]);
+  await run('DELETE FROM stores WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// Products (each returned with a prices map { store_id: price }) -----------
+app.get('/api/store/products', auth, wrap(async (req, res) => {
+  const products = await query('SELECT * FROM store_products ORDER BY name');
+  const priceRows = await query('SELECT product_id, store_id, price::float AS price FROM store_prices');
+  const byProduct = {};
+  priceRows.forEach((r) => { (byProduct[r.product_id] = byProduct[r.product_id] || {})[r.store_id] = r.price; });
+  res.json(products.map((p) => ({ ...p, prices: byProduct[p.id] || {} })));
+}));
+
+async function savePrices(productId, prices) {
+  if (!prices || typeof prices !== 'object') return;
+  for (const [storeId, val] of Object.entries(prices)) {
+    const sid = Number(storeId);
+    if (!sid) continue;
+    if (val === '' || val === null || val === undefined) {
+      await run('DELETE FROM store_prices WHERE product_id=? AND store_id=?', [productId, sid]);
+    } else {
+      await run(`
+        INSERT INTO store_prices (product_id, store_id, price) VALUES (?, ?, ?)
+        ON CONFLICT (product_id, store_id) DO UPDATE SET price = EXCLUDED.price
+      `, [productId, sid, Number(val)]);
+    }
+  }
+}
+
+app.post('/api/store/products', auth, admin, wrap(async (req, res) => {
+  const { sku, name, category, description, uom, status, prices } = req.body;
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Item name is required' });
+  const r = await run(`
+    INSERT INTO store_products (sku, name, category, description, uom, status)
+    VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+  `, [sku || null, name.trim(), category || null, description || null, uom || 'pcs', status === 'inactive' ? 'inactive' : 'active']);
+  await savePrices(r.rows[0].id, prices);
+  res.status(201).json({ id: r.rows[0].id });
+}));
+
+app.put('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
+  const { sku, name, category, description, uom, status, prices } = req.body;
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Item name is required' });
+  await run(`
+    UPDATE store_products SET sku=?, name=?, category=?, description=?, uom=?, status=? WHERE id=?
+  `, [sku || null, name.trim(), category || null, description || null, uom || 'pcs', status === 'inactive' ? 'inactive' : 'active', req.params.id]);
+  await savePrices(req.params.id, prices);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
+  await run('DELETE FROM store_prices WHERE product_id = ?', [req.params.id]);
+  await run('DELETE FROM store_products WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // Full-database backup / restore / reset (admin only).
 // Backup is a JSON snapshot of every table; restore replaces all data with a
 // snapshot; reset clears operational data but keeps user accounts + settings.
@@ -1064,17 +1142,20 @@ app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => 
 // on restore; delete in reverse.
 const BACKUP_TABLES = [
   'users', 'customers', 'categories', 'projects',
-  'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns', 'app_settings',
+  'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
+  'stores', 'store_products', 'store_prices', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
+  'stores', 'store_products', 'store_prices',
 ];
 // Operational data cleared by a reset (reverse dependency order). Users,
 // app_settings and categories are intentionally preserved so login + role
 // permissions keep working after a reset.
 const RESET_TABLES = [
+  'store_prices', 'store_products', 'stores',
   'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
 ];
 
