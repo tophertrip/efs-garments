@@ -39,15 +39,19 @@ function POS({ stores, products, onSold }) {
   });
 
   function priceFor(p) { return p.prices?.[storeId]; }
+  // A variant's own price wins; otherwise it uses the product's store price.
+  function variantPrice(p, v) { return v.price != null ? v.price : priceFor(p); }
 
-  function addToCart(p) {
-    const price = priceFor(p);
+  function addLine(p, variant) {
+    const price = variant ? variantPrice(p, variant) : priceFor(p);
     if (price == null) return;
     setDone('');
+    const key = `${p.id}:${variant?.id || ''}`;
+    const name = variant ? `${p.name} — ${variant.name}` : p.name;
     setCart((c) => {
-      const i = c.findIndex((l) => l.product_id === p.id);
+      const i = c.findIndex((l) => l.key === key);
       if (i >= 0) { const n = [...c]; n[i] = { ...n[i], qty: n[i].qty + 1 }; return n; }
-      return [...c, { product_id: p.id, name: p.name, sku: p.sku, unit_price: price, qty: 1, discount: 0 }];
+      return [...c, { key, product_id: p.id, variant_id: variant?.id || null, name, sku: variant?.sku || p.sku, unit_price: price, qty: 1, discount: 0 }];
     });
   }
   function updateLine(idx, k, v) {
@@ -66,7 +70,7 @@ function POS({ stores, products, onSold }) {
     try {
       const res = await api.post('/store/sales', {
         store_id: Number(storeId), customer_name: customer || null, payment_method: method,
-        items: cart.map((l) => ({ product_id: l.product_id, qty: Number(l.qty), unit_price: l.unit_price, discount: Number(l.discount) || 0 })),
+        items: cart.map((l) => ({ product_id: l.product_id, variant_id: l.variant_id || null, qty: Number(l.qty), unit_price: l.unit_price, discount: Number(l.discount) || 0 })),
       });
       setCart([]); setCustomer('');
       setDone(`Sale #${res.id} completed — ${peso(res.total)}. It's now in the sales report.`);
@@ -98,10 +102,35 @@ function POS({ stores, products, onSold }) {
           <div className="max-h-[460px] overflow-y-auto divide-y divide-gray-100">
             {shown.length === 0 && <div className="text-center text-gray-400 py-10 text-sm">No products found.</div>}
             {shown.map((p) => {
+              const hasVariants = p.variants && p.variants.length > 0;
+              if (hasVariants) {
+                return (
+                  <div key={p.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-navy truncate">{p.name}</div>
+                        <div className="text-xs text-gray-400">{p.sku || '—'}{p.category ? ` · ${p.category}` : ''} · {p.uom} · {p.variants.length} variants</div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {p.variants.map((v) => {
+                        const vp = variantPrice(p, v);
+                        const noPrice = vp == null;
+                        return (
+                          <button key={v.id} onClick={() => addLine(p, v)} disabled={noPrice}
+                            className={`text-xs font-semibold rounded-full border px-2.5 py-1 transition ${noPrice ? 'opacity-40 cursor-not-allowed border-gray-200 text-gray-400' : 'border-navy/30 text-navy hover:bg-navy hover:text-white'}`}>
+                            {v.name} · {noPrice ? 'no price' : peso(vp)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
               const price = priceFor(p);
               const noPrice = price == null;
               return (
-                <button key={p.id} onClick={() => addToCart(p)} disabled={noPrice}
+                <button key={p.id} onClick={() => addLine(p)} disabled={noPrice}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left ${noPrice ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cloud'}`}>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-navy truncate">{p.name}</div>
@@ -128,7 +157,7 @@ function POS({ stores, products, onSold }) {
           ) : (
             <div className="space-y-2 mb-3 max-h-[300px] overflow-y-auto">
               {cart.map((l, i) => (
-                <div key={l.product_id} className="border border-gray-100 rounded-lg p-2">
+                <div key={l.key} className="border border-gray-100 rounded-lg p-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-navy text-sm truncate">{l.name}</span>
                     <button onClick={() => removeLine(i)} className="text-xs text-red-500 shrink-0">✕</button>
@@ -385,18 +414,24 @@ function ProductModal({ product, stores, onClose, onSaved }) {
     description: product?.description || '', uom: product?.uom || 'pcs', status: product?.status || 'active',
     prices: { ...(product?.prices || {}) },
   }));
+  const [variants, setVariants] = useState(() => (product?.variants || []).map((v) => ({ id: v.id, name: v.name, sku: v.sku || '', price: v.price ?? '' })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setPrice = (sid, v) => setForm((f) => ({ ...f, prices: { ...f.prices, [sid]: v } }));
+  const setVariant = (i, k, v) => setVariants((vs) => vs.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const addVariant = () => setVariants((vs) => [...vs, { name: '', sku: '', price: '' }]);
+  const removeVariant = (i) => setVariants((vs) => vs.filter((_, j) => j !== i));
 
   async function submit(e) {
     e.preventDefault();
     if (!form.name.trim()) { setError('Item name is required'); return; }
+    if (variants.some((v) => !v.name.trim())) { setError('Every variant needs a name'); return; }
     setBusy(true);
     try {
-      if (editing) await api.put(`/store/products/${product.id}`, form);
-      else await api.post('/store/products', form);
+      const body = { ...form, variants };
+      if (editing) await api.put(`/store/products/${product.id}`, body);
+      else await api.post('/store/products', body);
       onSaved(); onClose();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -427,6 +462,30 @@ function ProductModal({ product, stores, onClose, onSaved }) {
                   <Input type="number" min="0" step="0.01" value={form.prices[s.id] ?? ''} onChange={(e) => setPrice(s.id, e.target.value)} placeholder="₱0.00" />
                 </label>
               ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-gray-500">Variants <span className="font-normal text-gray-400">(optional — e.g. sizes, colors)</span></span>
+            <button type="button" onClick={addVariant} className="text-xs font-semibold text-navy hover:underline">+ Add variant</button>
+          </div>
+          {variants.length === 0 ? (
+            <p className="text-xs text-gray-400">No variants — this item sells as a single option.</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="hidden sm:grid grid-cols-[1fr_1fr_120px_28px] gap-2 text-[11px] text-gray-400 px-0.5">
+                <span>Variant name</span><span>SKU (optional)</span><span>Price (optional)</span><span />
+              </div>
+              {variants.map((v, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_120px_28px] gap-2 items-center">
+                  <Input value={v.name} onChange={(e) => setVariant(i, 'name', e.target.value)} placeholder="e.g. Small / Red" />
+                  <Input value={v.sku} onChange={(e) => setVariant(i, 'sku', e.target.value)} placeholder="SKU" />
+                  <Input type="number" min="0" step="0.01" value={v.price} onChange={(e) => setVariant(i, 'price', e.target.value)} placeholder="store price" />
+                  <button type="button" onClick={() => removeVariant(i)} className="text-red-500 hover:text-red-600 text-sm">✕</button>
+                </div>
+              ))}
+              <p className="text-[11px] text-gray-400">Leave price blank to use the item's per-store price above.</p>
             </div>
           )}
         </div>
@@ -497,7 +556,7 @@ function Products({ products, stores, reload }) {
               {shown.map((p) => (
                 <tr key={p.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">{p.sku || '—'}</td>
-                  <td className="px-4 py-3 font-semibold text-navy">{p.name}{p.description && <div className="text-xs font-normal text-gray-400 max-w-[240px] truncate" title={p.description}>{p.description}</div>}</td>
+                  <td className="px-4 py-3 font-semibold text-navy">{p.name}{p.variants?.length > 0 && <span className="ml-2 text-[11px] font-semibold text-navy bg-cloud rounded-full px-2 py-0.5">{p.variants.length} variants</span>}{p.description && <div className="text-xs font-normal text-gray-400 max-w-[240px] truncate" title={p.description}>{p.description}</div>}</td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.category || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{p.uom}</td>
                   <td className="px-4 py-3"><StatusBadge status={p.status} /></td>

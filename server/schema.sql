@@ -149,6 +149,17 @@ CREATE TABLE IF NOT EXISTS store_prices (
   UNIQUE (product_id, store_id)
 );
 
+-- Optional product variants (e.g. sizes/colors). price is an optional override;
+-- when null the variant uses the product's per-store price.
+CREATE TABLE IF NOT EXISTS store_product_variants (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER REFERENCES store_products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sku TEXT,
+  price NUMERIC(10,2),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- POS sales (header) + line items. Sales sync into the sales report.
 CREATE TABLE IF NOT EXISTS store_sales (
   id SERIAL PRIMARY KEY,
@@ -166,6 +177,7 @@ CREATE TABLE IF NOT EXISTS store_sale_items (
   id SERIAL PRIMARY KEY,
   sale_id INTEGER REFERENCES store_sales(id) ON DELETE CASCADE,
   product_id INTEGER REFERENCES store_products(id),
+  variant_id INTEGER REFERENCES store_product_variants(id) ON DELETE SET NULL,
   name TEXT,
   sku TEXT,
   qty NUMERIC(10,2) NOT NULL,
@@ -173,6 +185,7 @@ CREATE TABLE IF NOT EXISTS store_sale_items (
   discount NUMERIC(10,2) NOT NULL DEFAULT 0,
   line_total NUMERIC(10,2) NOT NULL
 );
+ALTER TABLE store_sale_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES store_product_variants(id) ON DELETE SET NULL;
 
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (

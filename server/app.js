@@ -1096,13 +1096,16 @@ app.delete('/api/stores/:id', auth, admin, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Products (each returned with a prices map { store_id: price }) -----------
+// Products (each returned with a prices map { store_id: price } + variants) --
 app.get('/api/store/products', auth, wrap(async (req, res) => {
   const products = await query('SELECT * FROM store_products ORDER BY name');
   const priceRows = await query('SELECT product_id, store_id, price::float AS price FROM store_prices');
+  const variantRows = await query('SELECT id, product_id, name, sku, price::float AS price FROM store_product_variants ORDER BY id');
   const byProduct = {};
   priceRows.forEach((r) => { (byProduct[r.product_id] = byProduct[r.product_id] || {})[r.store_id] = r.price; });
-  res.json(products.map((p) => ({ ...p, prices: byProduct[p.id] || {} })));
+  const variantsByProduct = {};
+  variantRows.forEach((v) => { (variantsByProduct[v.product_id] = variantsByProduct[v.product_id] || []).push(v); });
+  res.json(products.map((p) => ({ ...p, prices: byProduct[p.id] || {}, variants: variantsByProduct[p.id] || [] })));
 }));
 
 async function savePrices(productId, prices) {
@@ -1121,24 +1124,48 @@ async function savePrices(productId, prices) {
   }
 }
 
+// Reconcile a product's variants against the submitted list (update / insert /
+// delete). Existing rows are kept by id so past sales keep their reference.
+async function saveVariants(productId, variants) {
+  if (!Array.isArray(variants)) return;
+  const clean = variants.filter((v) => String(v.name || '').trim());
+  const keepIds = clean.filter((v) => v.id).map((v) => Number(v.id));
+  const existing = (await query('SELECT id FROM store_product_variants WHERE product_id = ?', [productId])).map((r) => r.id);
+  for (const id of existing) {
+    if (!keepIds.includes(id)) await run('DELETE FROM store_product_variants WHERE id = ?', [id]);
+  }
+  for (const v of clean) {
+    const price = v.price === '' || v.price === null || v.price === undefined ? null : Number(v.price);
+    if (v.id) {
+      await run('UPDATE store_product_variants SET name=?, sku=?, price=? WHERE id=? AND product_id=?',
+        [v.name.trim(), v.sku || null, price, Number(v.id), productId]);
+    } else {
+      await run('INSERT INTO store_product_variants (product_id, name, sku, price) VALUES (?, ?, ?, ?)',
+        [productId, v.name.trim(), v.sku || null, price]);
+    }
+  }
+}
+
 app.post('/api/store/products', auth, admin, wrap(async (req, res) => {
-  const { sku, name, category, description, uom, status, prices } = req.body;
+  const { sku, name, category, description, uom, status, prices, variants } = req.body;
   if (!String(name || '').trim()) return res.status(400).json({ error: 'Item name is required' });
   const r = await run(`
     INSERT INTO store_products (sku, name, category, description, uom, status)
     VALUES (?, ?, ?, ?, ?, ?) RETURNING id
   `, [sku || null, name.trim(), category || null, description || null, uom || 'pcs', status === 'inactive' ? 'inactive' : 'active']);
   await savePrices(r.rows[0].id, prices);
+  await saveVariants(r.rows[0].id, variants);
   res.status(201).json({ id: r.rows[0].id });
 }));
 
 app.put('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
-  const { sku, name, category, description, uom, status, prices } = req.body;
+  const { sku, name, category, description, uom, status, prices, variants } = req.body;
   if (!String(name || '').trim()) return res.status(400).json({ error: 'Item name is required' });
   await run(`
     UPDATE store_products SET sku=?, name=?, category=?, description=?, uom=?, status=? WHERE id=?
   `, [sku || null, name.trim(), category || null, description || null, uom || 'pcs', status === 'inactive' ? 'inactive' : 'active', req.params.id]);
   await savePrices(req.params.id, prices);
+  await saveVariants(req.params.id, variants);
   res.json({ ok: true });
 }));
 
@@ -1156,19 +1183,28 @@ app.post('/api/store/sales', auth, wrap(async (req, res) => {
   if (!store_id) return res.status(400).json({ error: 'Select a store first' });
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Add at least one product' });
 
-  // Build line items with a snapshot of product name/sku.
+  // Build line items with a snapshot of product/variant name/sku. Prices are
+  // resolved server-side: a variant's own price wins, else the store price.
   const lines = [];
   let subtotal = 0, discountTotal = 0;
   for (const it of items) {
     const qty = Number(it.qty);
-    const price = Number(it.unit_price);
     const disc = Math.max(0, Number(it.discount) || 0);
     if (!it.product_id || !qty || qty <= 0) continue;
     const prod = await get('SELECT name, sku FROM store_products WHERE id = ?', [it.product_id]);
+    let variant = null;
+    if (it.variant_id) variant = await get('SELECT id, name, sku, price::float AS price FROM store_product_variants WHERE id = ? AND product_id = ?', [it.variant_id, it.product_id]);
+    let price = null;
+    if (variant && variant.price != null) price = variant.price;
+    if (price == null) {
+      const sp = await get('SELECT price::float AS price FROM store_prices WHERE product_id = ? AND store_id = ?', [it.product_id, store_id]);
+      price = sp ? sp.price : (Number(it.unit_price) || 0);
+    }
+    const name = variant ? `${prod?.name || ''} — ${variant.name}` : (prod?.name || '');
     const lineTotal = Math.max(0, qty * price - disc);
     subtotal += qty * price;
     discountTotal += disc;
-    lines.push({ product_id: it.product_id, name: prod?.name || '', sku: prod?.sku || null, qty, unit_price: price, discount: disc, line_total: lineTotal });
+    lines.push({ product_id: it.product_id, variant_id: variant?.id || null, name, sku: variant?.sku || prod?.sku || null, qty, unit_price: price, discount: disc, line_total: lineTotal });
   }
   if (lines.length === 0) return res.status(400).json({ error: 'Add at least one valid product line' });
   const total = Math.max(0, subtotal - discountTotal);
@@ -1184,9 +1220,9 @@ app.post('/api/store/sales', auth, wrap(async (req, res) => {
     const saleId = saleRes.rows[0].id;
     for (const l of lines) {
       await client.query(
-        `INSERT INTO store_sale_items (sale_id, product_id, name, sku, qty, unit_price, discount, line_total)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [saleId, l.product_id, l.name, l.sku, l.qty, l.unit_price, l.discount, l.line_total]
+        `INSERT INTO store_sale_items (sale_id, product_id, variant_id, name, sku, qty, unit_price, discount, line_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [saleId, l.product_id, l.variant_id, l.name, l.sku, l.qty, l.unit_price, l.discount, l.line_total]
       );
     }
     await client.query('COMMIT');
@@ -1263,19 +1299,19 @@ app.get('/api/store/sales/:id', auth, wrap(async (req, res) => {
 const BACKUP_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
-  'stores', 'store_products', 'store_prices', 'store_sales', 'store_sale_items', 'app_settings',
+  'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
-  'stores', 'store_products', 'store_prices', 'store_sales', 'store_sale_items',
+  'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
 ];
 // Operational data cleared by a reset (reverse dependency order). Users,
 // app_settings and categories are intentionally preserved so login + role
 // permissions keep working after a reset.
 const RESET_TABLES = [
-  'store_sale_items', 'store_sales', 'store_prices', 'store_products', 'stores',
+  'store_sale_items', 'store_sales', 'store_prices', 'store_product_variants', 'store_products', 'stores',
   'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
 ];
 
