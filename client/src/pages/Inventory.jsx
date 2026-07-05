@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { SIZES, INVENTORY_CATEGORIES, fmtDate } from '../constants';
+import { parseCsv, downloadText } from '../csv';
 import { Card, Spinner, Button, Modal, Field, Input, Select, ConfirmDialog } from '../components';
 
 const canManageRoles = ['admin', 'purchasing'];
@@ -149,6 +150,34 @@ export default function Inventory() {
   const [delItem, setDelItem] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
   const [tf, setTf] = useState({ from: '', to: '', item_id: '', type: '', category: '' });
+  const fileRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null);
+
+  function downloadTemplate() {
+    downloadText('efs-inventory-template.csv',
+      'name,category,unit,tracks_size,low_stock_threshold,size,stock\n' +
+      'Dri-fit Fabric (Navy),Raw Materials,rolls,false,10,,25\n' +
+      'Blank Round-neck Shirts,Blank Garments,pcs,true,20,M,60\n');
+  }
+  async function onImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true); setImportMsg(null);
+    try {
+      const rows = parseCsv(await file.text());
+      if (!rows.length) throw new Error('No rows found in the file.');
+      const res = await api.post('/inventory/import', { rows });
+      const parts = [`${res.created} added`, `${res.updated} updated`];
+      if (res.stockAdjusted) parts.push(`${res.stockAdjusted} stock adjusted`);
+      if (res.skipped?.length) parts.push(`${res.skipped.length} skipped`);
+      setImportMsg({ ok: true, text: parts.join(' · '), skipped: res.skipped || [] });
+      refresh();
+    } catch (err) {
+      setImportMsg({ ok: false, text: err.message });
+    } finally { setImporting(false); }
+  }
 
   async function loadCore() {
     const [s, pr] = await Promise.all([api.get('/inventory/summary'), api.get('/projects')]);
@@ -202,6 +231,8 @@ export default function Inventory() {
           <p className="text-gray-500 text-sm">Stock on hand · {items.length} item{items.length !== 1 ? 's' : ''}</p>
         </div>
         <div className="flex gap-2 flex-wrap print:hidden">
+          {canManage && <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onImportFile} />}
+          {canManage && <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : '⬆ Import CSV'}</Button>}
           <Button variant="outline" onClick={exportSummaryCsv} disabled={!items.length}>⬇ Export CSV</Button>
           <Button variant="outline" onClick={() => window.print()}>🖨️ Print / PDF</Button>
           <Button variant="outline" onClick={() => setModal('in')}>⬇ Log IN</Button>
@@ -209,6 +240,21 @@ export default function Inventory() {
           {canManage && <Button variant="gold" onClick={() => setModal('item')}>+ New Item</Button>}
         </div>
       </div>
+
+      {importMsg && (
+        <div className={`rounded-lg px-4 py-3 mb-4 text-sm print:hidden ${importMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span>{importMsg.ok ? '✓ ' : '⚠ '}{importMsg.text}</span>
+            <button onClick={() => setImportMsg(null)} className="text-xs opacity-60 hover:opacity-100">✕</button>
+          </div>
+          {importMsg.skipped?.length > 0 && (
+            <ul className="mt-1 text-xs text-gray-500 list-disc pl-5 max-h-24 overflow-y-auto">
+              {importMsg.skipped.slice(0, 20).map((s, i) => <li key={i}>Line {s.line}: {s.reason}</li>)}
+            </ul>
+          )}
+          <button onClick={downloadTemplate} className="text-xs underline mt-1 opacity-70 hover:opacity-100">Download CSV template</button>
+        </div>
+      )}
 
       {/* Category filter */}
       <div className="flex flex-wrap gap-2 mb-4 print:hidden">

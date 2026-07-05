@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { STAGES, fmtDate } from '../constants';
+import { parseCsv, downloadText } from '../csv';
 import { useCategories } from '../categories';
 import { Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Input, Select } from '../components';
 import ProjectForm from '../ProjectForm';
@@ -13,6 +14,33 @@ export default function ProjectsList() {
   const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ status: '', category: '', from: '', to: '', search: '' });
   const navigate = useNavigate();
+  const fileRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null); // { ok, text }
+
+  function downloadTemplate() {
+    downloadText('efs-projects-template.csv',
+      'customer,company,project_name,category,description,quantity,unit_price,target_date,priority,status\n' +
+      'Juan Dela Cruz,ABC Corp,Team Jerseys,sportswear,Full sublimation,50,350,2026-08-15,normal,inquiry\n');
+  }
+
+  async function onImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true); setImportMsg(null);
+    try {
+      const rows = parseCsv(await file.text());
+      if (!rows.length) throw new Error('No rows found in the file.');
+      const res = await api.post('/projects/import', { rows });
+      const parts = [`${res.created} project${res.created !== 1 ? 's' : ''} imported`];
+      if (res.skipped?.length) parts.push(`${res.skipped.length} skipped`);
+      setImportMsg({ ok: true, text: parts.join(' · '), skipped: res.skipped || [] });
+      await load();
+    } catch (err) {
+      setImportMsg({ ok: false, text: err.message });
+    } finally { setImporting(false); }
+  }
 
   async function load() {
     setLoading(true);
@@ -51,11 +79,28 @@ export default function ProjectsList() {
           <h1 className="text-2xl font-extrabold text-navy">Projects</h1>
           <p className="text-gray-500 text-sm">{projects.length} job order{projects.length !== 1 ? 's' : ''}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onImportFile} />
+          <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : '⬆ Import CSV'}</Button>
           <Button variant="outline" onClick={exportCsv}>⬇ Export CSV</Button>
           <Button variant="gold" onClick={() => setShowForm(true)}>+ New Project</Button>
         </div>
       </div>
+
+      {importMsg && (
+        <div className={`rounded-lg px-4 py-3 mb-4 text-sm ${importMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span>{importMsg.ok ? '✓ ' : '⚠ '}{importMsg.text}</span>
+            <button onClick={() => setImportMsg(null)} className="text-xs opacity-60 hover:opacity-100">✕</button>
+          </div>
+          {importMsg.skipped?.length > 0 && (
+            <ul className="mt-1 text-xs text-gray-500 list-disc pl-5 max-h-24 overflow-y-auto">
+              {importMsg.skipped.slice(0, 20).map((s, i) => <li key={i}>Line {s.line}: {s.reason}</li>)}
+            </ul>
+          )}
+          <button onClick={downloadTemplate} className="text-xs underline mt-1 opacity-70 hover:opacity-100">Download CSV template</button>
+        </div>
+      )}
 
       <Card className="p-4 mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">

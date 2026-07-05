@@ -187,6 +187,15 @@ CREATE TABLE IF NOT EXISTS store_sale_items (
 );
 ALTER TABLE store_sale_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES store_product_variants(id) ON DELETE SET NULL;
 
+-- Activity log — audit trail of major changes (resets, restores, imports…).
+CREATE TABLE IF NOT EXISTS activity_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  action TEXT NOT NULL,
+  details TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

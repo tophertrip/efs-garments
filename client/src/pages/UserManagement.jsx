@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { ROLE_LABELS, TABS } from '../constants';
+import { ROLE_LABELS, TABS, fmtDateTime } from '../constants';
 import { usePermissions } from '../permissions';
 import { useAuth } from '../auth';
 import { Card, Spinner, Button, Modal, Field, Input, Select, ConfirmDialog } from '../components';
@@ -75,6 +75,10 @@ export default function UserManagement() {
   useEffect(() => { loadUsers(); }, []);
   useEffect(() => { setDraft(JSON.parse(JSON.stringify(perms || {}))); }, [perms]);
 
+  const [activity, setActivity] = useState([]);
+  async function loadActivity() { setActivity(await api.get('/admin/activity').catch(() => [])); }
+  useEffect(() => { loadActivity(); }, []);
+
   function toggleTab(role, tab) {
     setPermsSaved(false);
     setDraft((d) => {
@@ -127,6 +131,7 @@ export default function UserManagement() {
       URL.revokeObjectURL(url);
       const total = Object.values(data.counts || {}).reduce((s, n) => s + n, 0);
       setDataMsg(`Exported a backup of ${total} records. Keep this file safe — you can re-upload it later to restore.`);
+      loadActivity();
     } catch (e) { setRestoreErr(e.message); } finally { setBackupBusy(false); }
   }
 
@@ -153,7 +158,7 @@ export default function UserManagement() {
       const total = Object.values(res.restored || {}).reduce((s, n) => s + n, 0);
       setPendingRestore(null);
       setDataMsg(`Database restored from backup — ${total} records loaded.`);
-      await loadUsers(); await reloadPerms();
+      await loadUsers(); await reloadPerms(); loadActivity();
     } catch (e) { setRestoreErr(e.message); } finally { setRestoreBusy(false); }
   }
 
@@ -163,7 +168,7 @@ export default function UserManagement() {
       await api.post('/admin/reset', {});
       setShowReset(false); setResetText('');
       setDataMsg('Database reset — all projects, customers, payments and inventory were cleared. User accounts were kept.');
-      await loadUsers();
+      await loadUsers(); loadActivity();
     } catch (e) { setResetErr(e.message); } finally { setResetBusy(false); }
   }
 
@@ -291,6 +296,30 @@ export default function UserManagement() {
               <Button variant="outline" className="!border-red-300 !text-red-700 hover:!bg-red-50" onClick={() => { setResetErr(''); setResetText(''); setShowReset(true); }}>Reset to start new</Button>
             </div>
           </div>
+        </div>
+      </Card>
+
+      {/* Activity Log — audit trail of major changes */}
+      <Card className="overflow-hidden mt-8">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div>
+            <h2 className="font-bold text-navy">Activity Log</h2>
+            <p className="text-xs text-gray-500">Major changes — imports, resets, restores and backups.</p>
+          </div>
+          <button onClick={loadActivity} className="text-xs font-medium text-navy hover:underline">↻ Refresh</button>
+        </div>
+        <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+          {activity.length === 0 && <div className="text-center text-gray-400 py-8 text-sm">No activity recorded yet.</div>}
+          {activity.map((a) => (
+            <div key={a.id} className="flex items-start gap-3 px-4 py-2.5 text-sm">
+              <span className="mt-0.5">{a.action.includes('reset') ? '🧨' : a.action.includes('restore') ? '♻️' : a.action.includes('import') ? '⬆️' : a.action.includes('backup') ? '⬇️' : '•'}</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-navy">{a.action}</div>
+                {a.details && <div className="text-xs text-gray-500">{a.details}</div>}
+                <div className="text-xs text-gray-400">{a.user_name || 'Unknown'}{a.user_role ? ` · ${ROLE_LABELS[a.user_role] || a.user_role}` : ''} · {fmtDateTime(a.created_at)}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
 

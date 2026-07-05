@@ -39,6 +39,15 @@ function admin(req, res, next) {
   next();
 }
 
+// Record a major change to the activity log (best-effort — never blocks the op).
+async function logActivity(userId, action, details) {
+  try {
+    await run('INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)', [userId || null, action, details || null]);
+  } catch (e) {
+    console.error('activity log failed:', e.message);
+  }
+}
+
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
   admin: ['dashboard', 'projects', 'calendar', 'customers', 'reports', 'payments', 'finance', 'inventory', 'store', 'tasks'],
@@ -235,6 +244,59 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
   `, [newId, req.user.id]);
 
   res.status(201).json(await getProjectFull(newId));
+}));
+
+// Bulk-import projects from parsed CSV rows. Each row is an object keyed by the
+// (lower-cased) CSV header. Customers are matched by name/company or created.
+app.post('/api/projects/import', auth, wrap(async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  if (!rows) return res.status(400).json({ error: 'Expected { rows: [...] }' });
+  const pick = (r, ...keys) => { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
+
+  // Next job-order sequence for the current year (incremented as we insert).
+  const year = new Date().getFullYear();
+  const prefix = `EFS-${year}-`;
+  const last = await get('SELECT job_order_number FROM projects WHERE job_order_number LIKE ? ORDER BY job_order_number DESC LIMIT 1', [`${prefix}%`]);
+  let seq = last ? parseInt(last.job_order_number.slice(prefix.length), 10) : 0;
+
+  let created = 0; const skipped = [];
+  for (let idx = 0; idx < rows.length; idx++) {
+    const r = rows[idx];
+    const line = idx + 2; // +1 header, +1 to 1-index
+    try {
+      const category = pick(r, 'category');
+      const quantity = Number(pick(r, 'quantity', 'qty'));
+      const target_date = pick(r, 'target_date', 'target date', 'due_date', 'deadline');
+      const custName = pick(r, 'customer', 'customer_name', 'client', 'company');
+      if (!category || !quantity || !target_date) { skipped.push({ line, reason: 'Missing category, quantity or target_date' }); continue; }
+      if (!custName) { skipped.push({ line, reason: 'Missing customer/company' }); continue; }
+
+      // Match a customer by name or company, else create one.
+      let cust = await get('SELECT id FROM customers WHERE LOWER(name) = LOWER(?) OR LOWER(company) = LOWER(?) LIMIT 1', [custName, custName]);
+      if (!cust) cust = (await run('INSERT INTO customers (company, name, source) VALUES (?, ?, ?) RETURNING id', [pick(r, 'company') || null, custName, 'import'])).rows[0];
+
+      // Job order: use provided-and-unique value, else auto-generate.
+      let jo = pick(r, 'job_order_number', 'job order', 'job_order', 'jo');
+      if (jo) { const dup = await get('SELECT id FROM projects WHERE job_order_number = ?', [jo]); if (dup) { skipped.push({ line, reason: `Job order ${jo} already exists` }); continue; } }
+      else { seq += 1; jo = `${prefix}${String(seq).padStart(3, '0')}`; }
+
+      const unit_price = Number(pick(r, 'unit_price', 'unit price', 'price')) || 0;
+      const total_amount = unit_price * quantity;
+      const inserted = await run(`
+        INSERT INTO projects (job_order_number, project_name, customer_id, category, description, quantity, unit_price,
+          total_amount, target_date, design_notes, remarks, priority, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+      `, [jo, pick(r, 'project_name', 'project name') || null, cust.id, category, pick(r, 'description') || null,
+        quantity, unit_price || null, total_amount, target_date,
+        pick(r, 'design_notes', 'design notes') || null, pick(r, 'remarks') || null,
+        pick(r, 'priority').toLowerCase() || 'normal', pick(r, 'status').toLowerCase() || 'inquiry']);
+      await run('INSERT INTO project_logs (project_id, from_status, to_status, changed_by, notes) VALUES (?, NULL, ?, ?, ?)',
+        [inserted.rows[0].id, pick(r, 'status').toLowerCase() || 'inquiry', req.user.id, 'Project created (CSV import)']);
+      created += 1;
+    } catch (e) { skipped.push({ line, reason: e.message }); }
+  }
+  await logActivity(req.user.id, 'Projects imported (CSV)', `${created} created, ${skipped.length} skipped`);
+  res.json({ created, skipped });
 }));
 
 app.put('/api/projects/:id', auth, wrap(async (req, res) => {
@@ -1069,6 +1131,58 @@ app.delete('/api/inventory/txns/:id', auth, invManage, wrap(async (req, res) => 
   res.json({ ok: true });
 }));
 
+// Bulk-import inventory items from parsed CSV rows. Items are matched by
+// name+category (updated) or created. An optional `stock` column adjusts the
+// current stock to that level via a correcting transaction.
+app.post('/api/inventory/import', auth, invManage, wrap(async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  if (!rows) return res.status(400).json({ error: 'Expected { rows: [...] }' });
+  const pick = (r, ...keys) => { for (const k of keys) { if (r[k] != null && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
+  const truthy = (v) => ['1', 'true', 'yes', 'y', 't'].includes(String(v).toLowerCase());
+  const today = new Date().toISOString().slice(0, 10);
+
+  let created = 0, updated = 0, stockAdjusted = 0; const skipped = [];
+  for (let idx = 0; idx < rows.length; idx++) {
+    const r = rows[idx];
+    const line = idx + 2;
+    try {
+      const name = pick(r, 'name', 'item', 'item_name');
+      if (!name) { skipped.push({ line, reason: 'Missing item name' }); continue; }
+      const category = pick(r, 'category') || 'Uncategorized';
+      const unit = pick(r, 'unit', 'uom') || 'pcs';
+      const tracks_size = r.tracks_size != null ? truthy(r.tracks_size) : false;
+      const threshold = Number(pick(r, 'low_stock_threshold', 'low stock threshold', 'threshold')) || 10;
+
+      let item = await get('SELECT * FROM inventory_items WHERE LOWER(name) = LOWER(?) AND LOWER(category) = LOWER(?) LIMIT 1', [name, category]);
+      if (item) {
+        await run('UPDATE inventory_items SET unit=?, tracks_size=?, low_stock_threshold=? WHERE id=?', [unit, tracks_size, threshold, item.id]);
+        updated += 1;
+      } else {
+        item = (await run('INSERT INTO inventory_items (name, category, tracks_size, unit, low_stock_threshold) VALUES (?, ?, ?, ?, ?) RETURNING *', [name, category, tracks_size, unit, threshold])).rows[0];
+        created += 1;
+      }
+
+      // Optional stock level → adjust to target via a correcting txn.
+      const stockRaw = pick(r, 'stock', 'quantity', 'qty', 'on_hand');
+      if (stockRaw !== '') {
+        const target = Number(stockRaw);
+        if (!Number.isNaN(target)) {
+          const size = item.tracks_size ? (pick(r, 'size') || null) : null;
+          const cur = await get(`SELECT COALESCE(SUM(CASE WHEN type='in' THEN qty ELSE -qty END),0)::int AS s FROM inventory_txns WHERE item_id=? AND COALESCE(size,'')=COALESCE(?,'')`, [item.id, size]);
+          const delta = target - (cur?.s || 0);
+          if (delta !== 0) {
+            await run('INSERT INTO inventory_txns (item_id, size, qty, type, notes, txn_date, recorded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              [item.id, size, Math.abs(delta), delta > 0 ? 'in' : 'out', 'CSV import adjustment', today, req.user.id]);
+            stockAdjusted += 1;
+          }
+        }
+      }
+    } catch (e) { skipped.push({ line, reason: e.message }); }
+  }
+  await logActivity(req.user.id, 'Inventory imported (CSV)', `${created} created, ${updated} updated, ${stockAdjusted} stock adj, ${skipped.length} skipped`);
+  res.json({ created, updated, stockAdjusted, skipped });
+}));
+
 // ---------------------------------------------------------------------------
 // STORE — products + per-store pricing across multiple stores (admin-managed)
 // ---------------------------------------------------------------------------
@@ -1299,13 +1413,15 @@ app.get('/api/store/sales/:id', auth, wrap(async (req, res) => {
 const BACKUP_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
-  'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items', 'app_settings',
+  'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
+  'activity_log', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
   'users', 'customers', 'categories', 'projects',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
   'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
+  'activity_log',
 ];
 // Operational data cleared by a reset (reverse dependency order). Users,
 // app_settings and categories are intentionally preserved so login + role
@@ -1322,7 +1438,18 @@ app.get('/api/admin/backup', auth, admin, wrap(async (req, res) => {
     tables[t] = await query(`SELECT * FROM ${t} ORDER BY ${t === 'app_settings' ? 'key' : 'id'}`);
   }
   const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]));
+  const totalRecords = Object.values(counts).reduce((a, n) => a + n, 0);
+  await logActivity(req.user.id, 'Database backup exported', `${totalRecords} records`);
   res.json({ app: 'efs-garments', version: 1, exported_at: new Date().toISOString(), counts, tables });
+}));
+
+// Recent major-change activity (admin).
+app.get('/api/admin/activity', auth, admin, wrap(async (req, res) => {
+  res.json(await query(`
+    SELECT a.id, a.action, a.details, a.created_at, u.name AS user_name, u.role AS user_role
+    FROM activity_log a LEFT JOIN users u ON u.id = a.user_id
+    ORDER BY a.id DESC LIMIT 200
+  `));
 }));
 
 // Replace ALL data with the contents of a backup file.
@@ -1370,6 +1497,8 @@ app.post('/api/admin/restore', auth, admin, wrap(async (req, res) => {
   } finally {
     client.release();
   }
+  const totalRecords = Object.values(counts).reduce((a, n) => a + n, 0);
+  await logActivity(req.user.id, 'Database restored from backup', `${totalRecords} records loaded`);
   res.json({ ok: true, restored: counts });
 }));
 
@@ -1390,6 +1519,7 @@ app.post('/api/admin/reset', auth, admin, wrap(async (req, res) => {
   } finally {
     client.release();
   }
+  await logActivity(req.user.id, 'Database reset', `Cleared: ${RESET_TABLES.join(', ')}`);
   res.json({ ok: true, cleared: RESET_TABLES });
 }));
 
