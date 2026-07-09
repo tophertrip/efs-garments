@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Line items — lets one project/job order hold several products (variety).
+CREATE TABLE IF NOT EXISTS project_items (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  description TEXT,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  unit_price NUMERIC(10,2),
+  line_total NUMERIC(10,2),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Migrations for existing databases.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_name TEXT;
 

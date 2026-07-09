@@ -81,6 +81,13 @@ async function getProjectFull(id) {
     WHERE p.id = ?
   `, [id]);
   if (!project) return null;
+  project.items = await query('SELECT id, description, quantity, unit_price::float AS unit_price, line_total::float AS line_total FROM project_items WHERE project_id = ? ORDER BY id', [id]);
+  // Older projects (pre-line-items) present as a single synthesized product.
+  if (!project.items.length) {
+    project.items = [{ id: null, description: project.description, quantity: project.quantity,
+      unit_price: project.unit_price != null ? Number(project.unit_price) : null,
+      line_total: project.total_amount != null ? Number(project.total_amount) : null }];
+  }
   project.logs = await query(`
     SELECT l.*, u.name AS changed_by_name
     FROM project_logs l
@@ -202,15 +209,41 @@ app.get('/api/projects/:id', auth, wrap(async (req, res) => {
   res.json(project);
 }));
 
+// Normalize a project's product line items (variety of products in one job).
+// Falls back to the single quantity/unit_price/description fields when no
+// `items` array is supplied, so older clients keep working.
+function normalizeItems(body) {
+  let items = Array.isArray(body.items) ? body.items : null;
+  if (!items || items.length === 0) {
+    items = [{ description: body.description, quantity: body.quantity, unit_price: body.unit_price }];
+  }
+  const clean = items.map((it) => ({
+    description: (it.description ?? '').toString().trim() || null,
+    quantity: Math.max(0, Math.round(Number(it.quantity) || 0)),
+    unit_price: it.unit_price === '' || it.unit_price == null ? 0 : Number(it.unit_price),
+  })).filter((it) => it.quantity > 0);
+  const totalQty = clean.reduce((a, it) => a + it.quantity, 0);
+  const totalAmount = clean.reduce((a, it) => a + it.quantity * it.unit_price, 0);
+  return { items: clean, totalQty, totalAmount, first: clean[0] || null };
+}
+async function saveProjectItems(projectId, items) {
+  await run('DELETE FROM project_items WHERE project_id = ?', [projectId]);
+  for (const it of items) {
+    await run('INSERT INTO project_items (project_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?)',
+      [projectId, it.description, it.quantity, it.unit_price, it.quantity * it.unit_price]);
+  }
+}
+
 app.post('/api/projects', auth, wrap(async (req, res) => {
   const {
-    project_name, customer_id, category, description, quantity, unit_price,
-    target_date, design_notes, remarks, design_file_url, priority,
+    project_name, customer_id, category, target_date, design_notes, remarks, design_file_url, priority,
   } = req.body;
 
-  if (!customer_id || !category || !quantity || !target_date) {
-    return res.status(400).json({ error: 'customer_id, category, quantity and target_date are required' });
+  const { items, totalQty, totalAmount, first } = normalizeItems(req.body);
+  if (!customer_id || !category || !target_date) {
+    return res.status(400).json({ error: 'customer_id, category and target_date are required' });
   }
+  if (!items.length) return res.status(400).json({ error: 'At least one product with a quantity is required' });
 
   // Generate next job order number: EFS-YYYY-NNN
   const year = new Date().getFullYear();
@@ -223,8 +256,6 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
   if (last) seq = parseInt(last.job_order_number.slice(prefix.length), 10) + 1;
   const job_order_number = `${prefix}${String(seq).padStart(3, '0')}`;
 
-  const total_amount = (Number(unit_price) || 0) * (Number(quantity) || 0);
-
   const inserted = await run(`
     INSERT INTO projects
       (job_order_number, project_name, customer_id, category, description, quantity, unit_price,
@@ -232,11 +263,12 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry')
     RETURNING id
   `, [
-    job_order_number, project_name || null, customer_id, category, description || null, quantity,
-    unit_price || null, total_amount, target_date, design_notes || null,
+    job_order_number, project_name || null, customer_id, category, first.description, totalQty,
+    first.unit_price || null, totalAmount, target_date, design_notes || null,
     remarks || null, design_file_url || null, priority || 'normal',
   ]);
   const newId = inserted.rows[0].id;
+  await saveProjectItems(newId, items);
 
   await run(`
     INSERT INTO project_logs (project_id, from_status, to_status, changed_by, notes)
@@ -290,6 +322,8 @@ app.post('/api/projects/import', auth, wrap(async (req, res) => {
         quantity, unit_price || null, total_amount, target_date,
         pick(r, 'design_notes', 'design notes') || null, pick(r, 'remarks') || null,
         pick(r, 'priority').toLowerCase() || 'normal', pick(r, 'status').toLowerCase() || 'inquiry']);
+      await run('INSERT INTO project_items (project_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?)',
+        [inserted.rows[0].id, pick(r, 'description') || null, quantity, unit_price || null, total_amount]);
       await run('INSERT INTO project_logs (project_id, from_status, to_status, changed_by, notes) VALUES (?, NULL, ?, ?, ?)',
         [inserted.rows[0].id, pick(r, 'status').toLowerCase() || 'inquiry', req.user.id, 'Project created (CSV import)']);
       created += 1;
@@ -307,7 +341,20 @@ app.put('/api/projects/:id', auth, wrap(async (req, res) => {
     'target_date', 'design_notes', 'remarks', 'design_file_url', 'priority'];
   const merged = { ...existing };
   for (const f of fields) if (f in req.body) merged[f] = req.body[f];
-  merged.total_amount = (Number(merged.unit_price) || 0) * (Number(merged.quantity) || 0);
+
+  // Re-derive quantity / unit_price / total from the product line items.
+  let items = null;
+  if (Array.isArray(req.body.items) || 'quantity' in req.body || 'unit_price' in req.body || 'description' in req.body) {
+    const norm = normalizeItems({ ...req.body, description: merged.description, quantity: merged.quantity, unit_price: merged.unit_price });
+    if (norm.items.length) {
+      items = norm.items;
+      merged.quantity = norm.totalQty;
+      merged.unit_price = norm.first.unit_price || null;
+      merged.description = norm.first.description;
+      merged.total_amount = norm.totalAmount;
+    }
+  }
+  if (items === null) merged.total_amount = (Number(merged.unit_price) || 0) * (Number(merged.quantity) || 0);
 
   await run(`
     UPDATE projects SET
@@ -320,6 +367,7 @@ app.put('/api/projects/:id', auth, wrap(async (req, res) => {
     merged.unit_price, merged.total_amount, merged.target_date, merged.design_notes,
     merged.remarks, merged.design_file_url, merged.priority, req.params.id,
   ]);
+  if (items) await saveProjectItems(req.params.id, items);
   res.json(await getProjectFull(req.params.id));
 }));
 
@@ -1411,14 +1459,14 @@ app.get('/api/store/sales/:id', auth, wrap(async (req, res) => {
 // Tables in foreign-key dependency order (parents first). Insert in this order
 // on restore; delete in reverse.
 const BACKUP_TABLES = [
-  'users', 'customers', 'categories', 'projects',
+  'users', 'customers', 'categories', 'projects', 'project_items',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
   'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
   'activity_log', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
-  'users', 'customers', 'categories', 'projects',
+  'users', 'customers', 'categories', 'projects', 'project_items',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
   'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
   'activity_log',
@@ -1428,7 +1476,7 @@ const SERIAL_TABLES = [
 // permissions keep working after a reset.
 const RESET_TABLES = [
   'store_sale_items', 'store_sales', 'store_prices', 'store_product_variants', 'store_products', 'stores',
-  'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'projects', 'customers',
+  'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'project_items', 'projects', 'customers',
 ];
 
 // Download a full snapshot of the database.

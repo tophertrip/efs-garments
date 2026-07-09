@@ -195,7 +195,25 @@ export default function ProjectDetail() {
               <Detail label="Total Amount"><span className="font-bold text-navy">{peso(project.total_amount)}</span></Detail>
               <Detail label="Created">{fmtDate(project.created_at)}</Detail>
             </dl>
-            {project.description && <Detail label="Description" className="mt-4 block">{project.description}</Detail>}
+            {project.items?.length > 1 && (
+              <div className="mt-4">
+                <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Products ({project.items.length})</div>
+                <div className="overflow-x-auto border border-gray-100 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-cloud text-left">
+                      <tr><th className="px-3 py-2 font-semibold">Product</th><th className="px-3 py-2 font-semibold text-right">Qty</th><th className="px-3 py-2 font-semibold text-right">Unit Price</th><th className="px-3 py-2 font-semibold text-right">Total</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {project.items.map((it, i) => (
+                        <tr key={i}><td className="px-3 py-2">{it.description || '—'}</td><td className="px-3 py-2 text-right">{it.quantity}</td><td className="px-3 py-2 text-right">{peso(it.unit_price)}</td><td className="px-3 py-2 text-right font-semibold text-navy">{peso(it.line_total)}</td></tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr className="border-t-2 border-gray-200 font-bold text-navy"><td className="px-3 py-2">Total</td><td className="px-3 py-2 text-right">{project.quantity}</td><td /><td className="px-3 py-2 text-right">{peso(project.total_amount)}</td></tr></tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
+            {project.items?.length <= 1 && project.description && <Detail label="Description" className="mt-4 block">{project.description}</Detail>}
             {project.design_notes && (
               <div className="mt-4">
                 <div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Sizes / Design Notes</div>

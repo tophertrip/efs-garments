@@ -42,7 +42,7 @@ export const TABS = [
 ];
 
 // Inventory.
-export const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+export const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL'];
 export const INVENTORY_CATEGORIES = ['Raw Materials', 'Blank Garments', 'Accessories', 'Packaging', 'Uniforms'];
 
 // Expense categories (garments manufacturing) + a color per category for charts.
