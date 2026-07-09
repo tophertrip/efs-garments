@@ -178,12 +178,16 @@ CREATE TABLE IF NOT EXISTS store_sales (
   customer_name TEXT,
   subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
   discount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  order_discount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  discount_note TEXT,
   total NUMERIC(10,2) NOT NULL DEFAULT 0,
   payment_method TEXT DEFAULT 'cash',
   sold_by INTEGER REFERENCES users(id),
   sold_at TIMESTAMPTZ DEFAULT now(),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE store_sales ADD COLUMN IF NOT EXISTS order_discount NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE store_sales ADD COLUMN IF NOT EXISTS discount_note TEXT;
 CREATE TABLE IF NOT EXISTS store_sale_items (
   id SERIAL PRIMARY KEY,
   sale_id INTEGER REFERENCES store_sales(id) ON DELETE CASCADE,

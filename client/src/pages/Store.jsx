@@ -25,12 +25,14 @@ function POS({ stores, products, onSold }) {
   const [cart, setCart] = useState([]); // { product_id, name, sku, unit_price, qty, discount }
   const [customer, setCustomer] = useState('');
   const [method, setMethod] = useState('cash');
+  const [orderDiscount, setOrderDiscount] = useState('');
+  const [discountNote, setDiscountNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
 
   // Changing store resets the cart (prices differ per store).
-  function pickStore(v) { setStoreId(v); setCart([]); setDone(''); }
+  function pickStore(v) { setStoreId(v); setCart([]); setDone(''); setOrderDiscount(''); setDiscountNote(''); }
 
   const sellable = useMemo(() => products.filter((p) => (p.status || 'active') !== 'inactive'), [products]);
   const shown = sellable.filter((p) => {
@@ -60,7 +62,8 @@ function POS({ stores, products, onSold }) {
   function removeLine(idx) { setCart((c) => c.filter((_, i) => i !== idx)); }
 
   const subtotal = cart.reduce((a, l) => a + l.qty * l.unit_price, 0);
-  const discTotal = cart.reduce((a, l) => a + (Number(l.discount) || 0), 0);
+  const lineDisc = cart.reduce((a, l) => a + (Number(l.discount) || 0), 0);
+  const discTotal = lineDisc + (Number(orderDiscount) || 0);
   const total = Math.max(0, subtotal - discTotal);
 
   async function checkout() {
@@ -70,9 +73,10 @@ function POS({ stores, products, onSold }) {
     try {
       const res = await api.post('/store/sales', {
         store_id: Number(storeId), customer_name: customer || null, payment_method: method,
+        order_discount: Number(orderDiscount) || 0, discount_note: discountNote || null,
         items: cart.map((l) => ({ product_id: l.product_id, variant_id: l.variant_id || null, qty: Number(l.qty), unit_price: l.unit_price, discount: Number(l.discount) || 0 })),
       });
-      setCart([]); setCustomer('');
+      setCart([]); setCustomer(''); setOrderDiscount(''); setDiscountNote('');
       setDone(`Sale #${res.id} completed — ${peso(res.total)}. It's now in the sales report.`);
       onSold?.();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -177,10 +181,17 @@ function POS({ stores, products, onSold }) {
             </div>
           )}
 
-          <div className="space-y-1 text-sm border-t border-gray-100 pt-2">
+          <div className="space-y-1.5 text-sm border-t border-gray-100 pt-2">
             <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{peso(subtotal)}</span></div>
-            <div className="flex justify-between text-gray-600"><span>Discount</span><span>− {peso(discTotal)}</span></div>
-            <div className="flex justify-between font-extrabold text-navy text-lg"><span>Total</span><span>{peso(total)}</span></div>
+            {lineDisc > 0 && <div className="flex justify-between text-gray-400 text-xs"><span>Line discounts</span><span>− {peso(lineDisc)}</span></div>}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-gray-600">Discount ₱</span>
+              <input type="number" min="0" step="0.01" value={orderDiscount} onChange={(e) => setOrderDiscount(e.target.value)} placeholder="0.00"
+                className="w-28 rounded border border-gray-300 px-2 py-1 text-right" />
+            </div>
+            <input value={discountNote} onChange={(e) => setDiscountNote(e.target.value)} placeholder="Discount detail / reason (optional)"
+              className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+            <div className="flex justify-between font-extrabold text-navy text-lg pt-1"><span>Total</span><span>{peso(total)}</span></div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 mt-3">
@@ -230,7 +241,7 @@ function Receipt({ id, onClose }) {
           </table>
           <div className="space-y-1 border-t border-gray-100 pt-2">
             <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{peso(sale.subtotal)}</span></div>
-            <div className="flex justify-between text-gray-600"><span>Discount</span><span>− {peso(sale.discount)}</span></div>
+            <div className="flex justify-between text-gray-600"><span>Discount{sale.discount_note ? ` — ${sale.discount_note}` : ''}</span><span>− {peso(sale.discount)}</span></div>
             <div className="flex justify-between font-extrabold text-navy"><span>Total</span><span>{peso(sale.total)}</span></div>
           </div>
           <div className="text-xs text-gray-400">Sold by {sale.sold_by_name || '—'}</div>
@@ -241,11 +252,21 @@ function Receipt({ id, onClose }) {
 }
 
 function SalesReport({ stores, refreshKey }) {
+  const { isAdmin } = useAuth();
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [f, setF] = useState({ from: '', to: '', store_id: '' });
   const [loading, setLoading] = useState(true);
   const [receipt, setReceipt] = useState(null);
+  const [editSale, setEditSale] = useState(null);
+  const [delSale, setDelSale] = useState(null);
+  const [delBusy, setDelBusy] = useState(false);
+
+  async function confirmDelete() {
+    setDelBusy(true);
+    try { await api.del(`/store/sales/${delSale.id}`); setDelSale(null); await load(); }
+    finally { setDelBusy(false); }
+  }
 
   async function load() {
     setLoading(true);
@@ -332,7 +353,11 @@ function SalesReport({ stores, refreshKey }) {
                   <td className="px-4 py-3 font-semibold text-navy whitespace-nowrap">{peso(r.total)}</td>
                   <td className="px-4 py-3 text-gray-500">{PAYMENT_METHOD_LABEL[r.payment_method] || r.payment_method}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.sold_by_name || '—'}</td>
-                  <td className="px-2 py-3 text-right"><button onClick={() => setReceipt(r.id)} className="text-xs text-navy hover:underline">View</button></td>
+                  <td className="px-2 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => setReceipt(r.id)} className="text-xs text-navy hover:underline">View</button>
+                    {isAdmin && <button onClick={() => setEditSale(r)} className="text-xs text-navy hover:underline ml-2">Edit</button>}
+                    {isAdmin && <button onClick={() => setDelSale(r)} className="text-xs text-red-600 hover:underline ml-2">Delete</button>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -340,7 +365,59 @@ function SalesReport({ stores, refreshKey }) {
         </div>
       </Card>
       {receipt && <Receipt id={receipt} onClose={() => setReceipt(null)} />}
+      {editSale && <SaleEditModal sale={editSale} onClose={() => setEditSale(null)} onSaved={load} />}
+      {delSale && (
+        <ConfirmDialog title={`Delete Sale #${delSale.id}?`} message={`${peso(delSale.total)} · ${delSale.store_name || ''} · ${fmtDateTime(delSale.sold_at)}. This permanently removes the sale from the report. This cannot be undone.`}
+          confirmLabel="Delete sale" busy={delBusy} onConfirm={confirmDelete} onClose={() => setDelSale(null)} />
+      )}
     </div>
+  );
+}
+
+// Admin-only sale edit — customer, payment, order-level discount + detail.
+function SaleEditModal({ sale, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    customer_name: sale.customer_name || '',
+    payment_method: sale.payment_method || 'cash',
+    order_discount: sale.order_discount ?? '',
+    discount_note: sale.discount_note || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const lineDisc = Math.max(0, (Number(sale.discount) || 0) - (Number(sale.order_discount) || 0));
+  const newTotal = Math.max(0, (Number(sale.subtotal) || 0) - lineDisc - (Number(form.order_discount) || 0));
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      await api.put(`/store/sales/${sale.id}`, { ...form, order_discount: Number(form.order_discount) || 0 });
+      onSaved(); onClose();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal title={`Edit Sale #${sale.id}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
+        <div className="text-xs text-gray-500">Subtotal {peso(sale.subtotal)}{lineDisc > 0 ? ` · line discounts − ${peso(lineDisc)}` : ''}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Customer"><Input value={form.customer_name} onChange={(e) => set('customer_name', e.target.value)} placeholder="Walk-in" /></Field>
+          <Field label="Payment">
+            <Select value={form.payment_method} onChange={(e) => set('payment_method', e.target.value)}>
+              {PAYMENT_METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Discount ₱"><Input type="number" min="0" step="0.01" value={form.order_discount} onChange={(e) => set('order_discount', e.target.value)} placeholder="0.00" /></Field>
+        <Field label="Discount detail / reason"><Input value={form.discount_note} onChange={(e) => set('discount_note', e.target.value)} placeholder="e.g. Loyalty discount" /></Field>
+        <div className="flex items-center justify-between border-t border-gray-100 pt-2">
+          <span className="text-sm text-gray-500">New total</span>
+          <span className="font-extrabold text-navy text-lg">{peso(newTotal)}</span>
+        </div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="gold" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</Button></div>
+      </form>
+    </Modal>
   );
 }
 

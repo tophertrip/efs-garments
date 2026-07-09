@@ -1342,6 +1342,8 @@ app.delete('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
 // server-side from the line items so they can't be tampered with.
 app.post('/api/store/sales', auth, wrap(async (req, res) => {
   const { store_id, customer_name, payment_method, items } = req.body;
+  const orderDiscount = Math.max(0, Number(req.body.order_discount) || 0);
+  const discountNote = (req.body.discount_note || '').toString().trim() || null;
   if (!store_id) return res.status(400).json({ error: 'Select a store first' });
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Add at least one product' });
 
@@ -1369,15 +1371,16 @@ app.post('/api/store/sales', auth, wrap(async (req, res) => {
     lines.push({ product_id: it.product_id, variant_id: variant?.id || null, name, sku: variant?.sku || prod?.sku || null, qty, unit_price: price, discount: disc, line_total: lineTotal });
   }
   if (lines.length === 0) return res.status(400).json({ error: 'Add at least one valid product line' });
+  discountTotal += orderDiscount; // line discounts + order-level discount
   const total = Math.max(0, subtotal - discountTotal);
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const saleRes = await client.query(
-      `INSERT INTO store_sales (store_id, customer_name, subtotal, discount, total, payment_method, sold_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [store_id, customer_name || null, subtotal, discountTotal, total, payment_method || 'cash', req.user.id]
+      `INSERT INTO store_sales (store_id, customer_name, subtotal, discount, order_discount, discount_note, total, payment_method, sold_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [store_id, customer_name || null, subtotal, discountTotal, orderDiscount, discountNote, total, payment_method || 'cash', req.user.id]
     );
     const saleId = saleRes.rows[0].id;
     for (const l of lines) {
@@ -1407,7 +1410,8 @@ app.get('/api/store/sales', auth, wrap(async (req, res) => {
   if (store_id) { where.push('sa.store_id = ?'); params.push(store_id); }
   const rows = await query(`
     SELECT sa.id, sa.customer_name, sa.subtotal::float AS subtotal, sa.discount::float AS discount,
-           sa.total::float AS total, sa.payment_method, sa.sold_at,
+           sa.order_discount::float AS order_discount, sa.discount_note,
+           sa.total::float AS total, sa.payment_method, sa.sold_at, sa.store_id,
            st.name AS store_name, u.name AS sold_by_name,
            (SELECT COUNT(*)::int FROM store_sale_items si WHERE si.sale_id = sa.id) AS item_count
     FROM store_sales sa
@@ -1449,6 +1453,36 @@ app.get('/api/store/sales/:id', auth, wrap(async (req, res) => {
   if (!sale) return res.status(404).json({ error: 'Sale not found' });
   sale.items = await query('SELECT *, qty::float AS qty, unit_price::float AS unit_price, discount::float AS discount, line_total::float AS line_total FROM store_sale_items WHERE sale_id = ? ORDER BY id', [req.params.id]);
   res.json(sale);
+}));
+
+// Edit a sale (admin only) — customer, payment method, order-level discount + note.
+// Line items are unchanged; totals are recomputed server-side.
+app.put('/api/store/sales/:id', auth, admin, wrap(async (req, res) => {
+  const sale = await get('SELECT * FROM store_sales WHERE id = ?', [req.params.id]);
+  if (!sale) return res.status(404).json({ error: 'Sale not found' });
+  const { customer_name, payment_method } = req.body;
+  const orderDiscount = Math.max(0, Number(req.body.order_discount) || 0);
+  const discountNote = (req.body.discount_note || '').toString().trim() || null;
+  const lineDisc = await get('SELECT COALESCE(SUM(discount),0)::float AS d FROM store_sale_items WHERE sale_id = ?', [req.params.id]);
+  const subtotal = Number(sale.subtotal) || 0;
+  const discountTotal = (lineDisc.d || 0) + orderDiscount;
+  const total = Math.max(0, subtotal - discountTotal);
+  await run(`
+    UPDATE store_sales SET customer_name=?, payment_method=?, order_discount=?, discount_note=?, discount=?, total=?
+    WHERE id=?
+  `, [customer_name || null, payment_method || sale.payment_method, orderDiscount, discountNote, discountTotal, total, req.params.id]);
+  await logActivity(req.user.id, 'POS sale edited', `Sale #${req.params.id} — total ${total}`);
+  res.json({ ok: true, total });
+}));
+
+// Delete a sale (admin only). Cascades to its line items.
+app.delete('/api/store/sales/:id', auth, admin, wrap(async (req, res) => {
+  const sale = await get('SELECT id, total FROM store_sales WHERE id = ?', [req.params.id]);
+  if (!sale) return res.status(404).json({ error: 'Sale not found' });
+  await run('DELETE FROM store_sale_items WHERE sale_id = ?', [req.params.id]);
+  await run('DELETE FROM store_sales WHERE id = ?', [req.params.id]);
+  await logActivity(req.user.id, 'POS sale deleted', `Sale #${req.params.id} — total ${sale.total}`);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
