@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { fmtDate } from '../constants';
 import { Card, Spinner, Button, Modal, Field, Input, Select, Empty, ConfirmDialog } from '../components';
+import CategoryManager from '../CategoryManager';
 
 const DEFAULT_SOURCES = ['facebook', 'instagram', 'referral'];
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -94,13 +95,16 @@ export default function Customers() {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [view, setView] = useState('card'); // 'card' | 'list'
+  const [showCats, setShowCats] = useState(false);
+  const [managedSources, setManagedSources] = useState([]);
 
   async function load() {
     setLoading(true);
     setCustomers(await api.get('/customers'));
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
+  function loadSources() { api.get('/customer-sources').then(setManagedSources).catch(() => {}); }
+  useEffect(() => { load(); loadSources(); }, []);
 
   async function confirmDelete() {
     setDeleting(true);
@@ -113,8 +117,8 @@ export default function Customers() {
   }
 
   const allSources = useMemo(
-    () => [...new Set([...DEFAULT_SOURCES, ...customers.map((c) => c.source).filter(Boolean)])],
-    [customers]
+    () => [...new Set([...(managedSources.length ? managedSources : DEFAULT_SOURCES), ...customers.map((c) => c.source).filter(Boolean)])],
+    [customers, managedSources]
   );
 
   const filtered = useMemo(() => {
@@ -154,9 +158,23 @@ export default function Customers() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>⬇ Export CSV</Button>
+          {isAdmin && <Button variant="outline" onClick={() => setShowCats(true)}>🏷 Sources</Button>}
           <Button variant="gold" onClick={() => setShow(true)}>+ New Customer</Button>
         </div>
       </div>
+
+      {showCats && (
+        <CategoryManager
+          title="Manage Customer Sources"
+          subtitle="Rename updates all customers with that source. Deleting clears it from those customers."
+          load={() => api.get('/customer-sources').then((a) => a.map((s) => ({ id: s, label: s })))}
+          onAdd={(name) => api.post('/customer-sources', { name })}
+          onRename={(item, name) => api.put('/customer-sources', { old: item.label, new: name })}
+          onDelete={(item) => api.del(`/customer-sources?name=${encodeURIComponent(item.label)}`)}
+          onChanged={() => { loadSources(); load(); }}
+          onClose={() => setShowCats(false)}
+        />
+      )}
 
       {/* Controls: search, source filter, view toggle */}
       <Card className="p-4 mb-4">

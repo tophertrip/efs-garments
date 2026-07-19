@@ -3,6 +3,7 @@ import { api } from '../api';
 import { peso, fmtDateTime, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '../constants';
 import { useAuth } from '../auth';
 import { Card, Spinner, Button, Modal, Field, Input, Textarea, Select, ConfirmDialog } from '../components';
+import CategoryManager from '../CategoryManager';
 
 const UOMS = ['pcs', 'box', 'pack', 'dozen', 'set', 'pair', 'kg', 'g', 'liter', 'meter', 'yard', 'roll'];
 
@@ -577,6 +578,7 @@ function Products({ products, stores, reload }) {
   const [cat, setCat] = useState('');
   const [status, setStatus] = useState('');
   const [showStores, setShowStores] = useState(false);
+  const [showCats, setShowCats] = useState(false);
   const [addProduct, setAddProduct] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [delProduct, setDelProduct] = useState(null);
@@ -600,6 +602,7 @@ function Products({ products, stores, reload }) {
   return (
     <div>
       <div className="flex justify-end gap-2 flex-wrap mb-4">
+        <Button variant="outline" onClick={() => setShowCats(true)}>🏷 Categories</Button>
         <Button variant="outline" onClick={() => setShowStores(true)}>🏬 Manage Stores</Button>
         <Button variant="gold" onClick={() => setAddProduct(true)}>+ Add Item</Button>
       </div>
@@ -651,6 +654,17 @@ function Products({ products, stores, reload }) {
         </div>
       </Card>
 
+      {showCats && (
+        <CategoryManager
+          title="Manage Product Categories"
+          subtitle="Rename updates every product with that category. Deleting clears it from those products."
+          load={() => api.get('/store/categories').then((a) => a.map((s) => ({ id: s, label: s })))}
+          onRename={(item, name) => api.put('/store/categories', { old: item.label, new: name })}
+          onDelete={(item) => api.del(`/store/categories?name=${encodeURIComponent(item.label)}`)}
+          onChanged={reload}
+          onClose={() => setShowCats(false)}
+        />
+      )}
       {showStores && <StoresModal stores={stores} onChanged={reload} onClose={() => setShowStores(false)} />}
       {addProduct && <ProductModal stores={stores} onClose={() => setAddProduct(false)} onSaved={reload} />}
       {editProduct && <ProductModal product={editProduct} stores={stores} onClose={() => setEditProduct(null)} onSaved={reload} />}

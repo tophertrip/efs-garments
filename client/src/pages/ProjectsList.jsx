@@ -4,11 +4,15 @@ import { api } from '../api';
 import { STAGES, fmtDate } from '../constants';
 import { parseCsv, downloadText } from '../csv';
 import { useCategories } from '../categories';
+import { useAuth } from '../auth';
 import { Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Input, Select } from '../components';
 import ProjectForm from '../ProjectForm';
+import CategoryManager from '../CategoryManager';
 
 export default function ProjectsList() {
-  const { categories, label: catLabel } = useCategories();
+  const { categories, label: catLabel, reload: reloadCategories } = useCategories();
+  const { isAdmin } = useAuth();
+  const [showCats, setShowCats] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -83,9 +87,23 @@ export default function ProjectsList() {
           <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onImportFile} />
           <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : '⬆ Import CSV'}</Button>
           <Button variant="outline" onClick={exportCsv}>⬇ Export CSV</Button>
+          {isAdmin && <Button variant="outline" onClick={() => setShowCats(true)}>🏷 Categories</Button>}
           <Button variant="gold" onClick={() => setShowForm(true)}>+ New Project</Button>
         </div>
       </div>
+
+      {showCats && (
+        <CategoryManager
+          title="Manage Project Categories"
+          subtitle="Rename or delete product categories. Projects keep their category if it's deleted (shown by its label)."
+          load={() => api.get('/categories').then((cs) => cs.map((c) => ({ id: c.key, label: c.label })))}
+          onAdd={(name) => api.post('/categories', { name })}
+          onRename={(item, name) => api.put(`/categories/${item.id}`, { name })}
+          onDelete={(item) => api.del(`/categories/${item.id}`)}
+          onChanged={reloadCategories}
+          onClose={() => { setShowCats(false); reloadCategories(); }}
+        />
+      )}
 
       {importMsg && (
         <div className={`rounded-lg px-4 py-3 mb-4 text-sm ${importMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>

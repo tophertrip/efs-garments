@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { EXPENSE_CATEGORIES, expenseColor, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, peso, fmtDate } from '../constants';
 import { Card, Spinner, Button, Modal, Field, Input, Textarea, Select, ConfirmDialog } from '../components';
+import CategoryManager from '../CategoryManager';
 
 const manageRoles = ['admin', 'finance'];
 
@@ -190,6 +191,8 @@ export default function Finance() {
   const [editExp, setEditExp] = useState(null);
   const [delExp, setDelExp] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
+  const [showCats, setShowCats] = useState(false);
+  const isAdmin = user.role === 'admin';
 
   async function loadCore() {
     const [s, pr, cats, names] = await Promise.all([
@@ -244,9 +247,23 @@ export default function Finance() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={exportCsv} disabled={!rows.length}>⬇ Export CSV</Button>
           <Button variant="outline" onClick={() => window.print()}>🖨️ Print / PDF</Button>
+          {isAdmin && <Button variant="outline" onClick={() => setShowCats(true)}>🏷 Categories</Button>}
           {canManage && <Button variant="gold" onClick={() => setModal(true)}>+ Add Expense</Button>}
         </div>
       </div>
+
+      {showCats && (
+        <CategoryManager
+          title="Manage Expense Categories"
+          subtitle="Rename updates all matching expenses. A category can't be deleted while expenses still use it."
+          load={() => api.get('/expenses/categories').then((a) => a.map((s) => ({ id: s, label: s })))}
+          onAdd={(name) => api.post('/expenses/categories', { name })}
+          onRename={(item, name) => api.put('/expenses/categories', { old: item.label, new: name })}
+          onDelete={(item) => api.del(`/expenses/categories?name=${encodeURIComponent(item.label)}`)}
+          onChanged={() => api.get('/expenses/categories').then((cats) => setCategories(cats.length ? cats : EXPENSE_CATEGORIES)).catch(() => {})}
+          onClose={() => setShowCats(false)}
+        />
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

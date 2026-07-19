@@ -39,6 +39,13 @@ function admin(req, res, next) {
   next();
 }
 
+// Upsert a key/value app setting.
+async function writeSetting(key, value) {
+  const row = await get('SELECT key FROM app_settings WHERE key = ?', [key]);
+  if (row) await run('UPDATE app_settings SET value = ? WHERE key = ?', [value, key]);
+  else await run('INSERT INTO app_settings (key, value) VALUES (?, ?)', [key, value]);
+}
+
 // Record a major change to the activity log (best-effort — never blocks the op).
 async function logActivity(userId, action, details) {
   try {
@@ -176,6 +183,23 @@ app.post('/api/categories', auth, wrap(async (req, res) => {
 
   await run('INSERT INTO categories (slug, name) VALUES (?, ?)', [slug, name]);
   res.status(201).json({ key: slug, label: name });
+}));
+
+// Rename a product category's display name (admin). Slug stays stable so
+// existing projects keep their reference.
+app.put('/api/categories/:slug', auth, admin, wrap(async (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Category name required' });
+  const ex = await get('SELECT slug FROM categories WHERE slug = ?', [req.params.slug]);
+  if (!ex) return res.status(404).json({ error: 'Category not found' });
+  await run('UPDATE categories SET name = ? WHERE slug = ?', [name, req.params.slug]);
+  res.json({ key: req.params.slug, label: name });
+}));
+
+// Delete a product category (admin).
+app.delete('/api/categories/:slug', auth, admin, wrap(async (req, res) => {
+  await run('DELETE FROM categories WHERE slug = ?', [req.params.slug]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -402,6 +426,10 @@ app.delete('/api/projects/:id', auth, wrap(async (req, res) => {
     await client.query('BEGIN');
     await client.query('DELETE FROM tasks WHERE project_id = $1', [req.params.id]);
     await client.query('DELETE FROM project_logs WHERE project_id = $1', [req.params.id]);
+    await client.query('DELETE FROM payments WHERE project_id = $1', [req.params.id]);
+    await client.query('DELETE FROM project_items WHERE project_id = $1', [req.params.id]);
+    await client.query('UPDATE expenses SET project_id = NULL WHERE project_id = $1', [req.params.id]);
+    await client.query('UPDATE inventory_txns SET project_id = NULL WHERE project_id = $1', [req.params.id]);
     await client.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
     await client.query('COMMIT');
   } catch (e) {
@@ -466,6 +494,52 @@ app.delete('/api/customers/:id', auth, wrap(async (req, res) => {
   }
   await run('DELETE FROM customers WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
+}));
+
+// Customer sources — the managed "category" list for customers (add/rename/delete).
+const DEFAULT_SOURCES = ['facebook', 'instagram', 'referral'];
+async function listCustomerSources() {
+  const row = await get("SELECT value FROM app_settings WHERE key='customer_sources'");
+  let base = null;
+  try { base = row ? JSON.parse(row.value) : null; } catch { base = null; }
+  if (!base) base = DEFAULT_SOURCES.slice();
+  const used = (await query("SELECT DISTINCT source FROM customers WHERE source IS NOT NULL AND source <> ''")).map((r) => r.source);
+  const seen = new Set();
+  const out = [];
+  for (const s of [...base, ...used]) {
+    const v = (s || '').trim();
+    if (v && !seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); out.push(v); }
+  }
+  return out;
+}
+app.get('/api/customer-sources', auth, wrap(async (req, res) => {
+  res.json(await listCustomerSources());
+}));
+app.post('/api/customer-sources', auth, admin, wrap(async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Source name is required' });
+  const list = await listCustomerSources();
+  if (!list.some((s) => s.toLowerCase() === name.toLowerCase())) list.push(name);
+  await writeSetting('customer_sources', JSON.stringify(list));
+  res.status(201).json(await listCustomerSources());
+}));
+app.put('/api/customer-sources', auth, admin, wrap(async (req, res) => {
+  const oldName = String(req.body?.old || '').trim();
+  const newName = String(req.body?.new || '').trim();
+  if (!oldName || !newName) return res.status(400).json({ error: 'Both old and new names are required' });
+  await run('UPDATE customers SET source = ? WHERE source = ?', [newName, oldName]);
+  let list = (await listCustomerSources()).filter((s) => s.toLowerCase() !== oldName.toLowerCase());
+  if (!list.some((s) => s.toLowerCase() === newName.toLowerCase())) list.push(newName);
+  await writeSetting('customer_sources', JSON.stringify(list));
+  res.json(await listCustomerSources());
+}));
+app.delete('/api/customer-sources', auth, admin, wrap(async (req, res) => {
+  const name = String(req.body?.name || req.query?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Source name is required' });
+  await run('UPDATE customers SET source = NULL WHERE source = ?', [name]);
+  const list = (await listCustomerSources()).filter((s) => s.toLowerCase() !== name.toLowerCase());
+  await writeSetting('customer_sources', JSON.stringify(list));
+  res.json(await listCustomerSources());
 }));
 
 // ---------------------------------------------------------------------------
@@ -922,15 +996,22 @@ async function readCustomCategories() {
   const row = await get("SELECT value FROM app_settings WHERE key='expense_categories'");
   try { return row ? JSON.parse(row.value) : []; } catch { return []; }
 }
-// Merged list: defaults, then saved custom, then any category already in use.
+async function readHiddenCategories() {
+  const row = await get("SELECT value FROM app_settings WHERE key='expense_categories_hidden'");
+  try { return row ? JSON.parse(row.value) : []; } catch { return []; }
+}
+// Merged list: defaults, then saved custom, then any category already in use,
+// minus any categories an admin has hidden/deleted.
 async function listExpenseCategories() {
   const custom = await readCustomCategories();
+  const hidden = await readHiddenCategories();
   const used = (await query('SELECT DISTINCT category FROM expenses WHERE category IS NOT NULL')).map((r) => r.category);
+  const hiddenLc = new Set(hidden.map((h) => h.toLowerCase()));
   const seen = new Set();
   const out = [];
   for (const c of [...EXPENSE_DEFAULT_CATEGORIES, ...custom, ...used]) {
     const name = (c || '').trim();
-    if (name && !seen.has(name)) { seen.add(name); out.push(name); }
+    if (name && !hiddenLc.has(name.toLowerCase()) && !seen.has(name)) { seen.add(name); out.push(name); }
   }
   return out;
 }
@@ -958,6 +1039,37 @@ app.post('/api/expenses/categories', auth, finGuard, wrap(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Category name is required' });
   await rememberCategory(name);
   res.status(201).json({ ok: true, categories: await listExpenseCategories() });
+}));
+
+// Rename an expense category (admin/finance) — updates all expenses that use it.
+app.put('/api/expenses/categories', auth, finGuard, wrap(async (req, res) => {
+  const oldName = String(req.body?.old || '').trim();
+  const newName = String(req.body?.new || '').trim();
+  if (!oldName || !newName) return res.status(400).json({ error: 'Both old and new category names are required' });
+  await run('UPDATE expenses SET category = ? WHERE category = ?', [newName, oldName]);
+  let custom = (await readCustomCategories()).filter((c) => c.toLowerCase() !== oldName.toLowerCase());
+  if (!EXPENSE_DEFAULT_CATEGORIES.includes(newName) && !custom.some((c) => c.toLowerCase() === newName.toLowerCase())) custom.push(newName);
+  await writeSetting('expense_categories', JSON.stringify(custom));
+  if (EXPENSE_DEFAULT_CATEGORIES.includes(oldName)) {
+    const hid = await readHiddenCategories();
+    if (!hid.includes(oldName)) { hid.push(oldName); await writeSetting('expense_categories_hidden', JSON.stringify(hid)); }
+  }
+  res.json({ ok: true, categories: await listExpenseCategories() });
+}));
+
+// Delete an expense category (admin/finance) — blocked while still in use.
+app.delete('/api/expenses/categories', auth, finGuard, wrap(async (req, res) => {
+  const name = String(req.body?.name || req.query?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  const { n } = await get('SELECT COUNT(*)::int AS n FROM expenses WHERE category = ?', [name]);
+  if (n > 0) return res.status(409).json({ error: `Cannot delete: ${n} expense${n !== 1 ? 's' : ''} use "${name}". Rename it or reassign those first.` });
+  const custom = (await readCustomCategories()).filter((c) => c.toLowerCase() !== name.toLowerCase());
+  await writeSetting('expense_categories', JSON.stringify(custom));
+  if (EXPENSE_DEFAULT_CATEGORIES.includes(name)) {
+    const hid = await readHiddenCategories();
+    if (!hid.includes(name)) { hid.push(name); await writeSetting('expense_categories_hidden', JSON.stringify(hid)); }
+  }
+  res.json({ ok: true, categories: await listExpenseCategories() });
 }));
 
 // Staff names for the "Staff assigned" field — free-text names (not limited to
@@ -1366,6 +1478,25 @@ app.put('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
 app.delete('/api/store/products/:id', auth, admin, wrap(async (req, res) => {
   await run('DELETE FROM store_prices WHERE product_id = ?', [req.params.id]);
   await run('DELETE FROM store_products WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// Store product categories (free-text on products) — list / rename / delete.
+app.get('/api/store/categories', auth, wrap(async (req, res) => {
+  const rows = await query("SELECT DISTINCT category FROM store_products WHERE category IS NOT NULL AND category <> '' ORDER BY category");
+  res.json(rows.map((r) => r.category));
+}));
+app.put('/api/store/categories', auth, admin, wrap(async (req, res) => {
+  const oldName = String(req.body?.old || '').trim();
+  const newName = String(req.body?.new || '').trim();
+  if (!oldName || !newName) return res.status(400).json({ error: 'Both old and new category names are required' });
+  await run('UPDATE store_products SET category = ? WHERE category = ?', [newName, oldName]);
+  res.json({ ok: true });
+}));
+app.delete('/api/store/categories', auth, admin, wrap(async (req, res) => {
+  const name = String(req.body?.name || req.query?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Category name is required' });
+  await run('UPDATE store_products SET category = NULL WHERE category = ?', [name]);
   res.json({ ok: true });
 }));
 
