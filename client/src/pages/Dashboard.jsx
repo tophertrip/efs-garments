@@ -4,6 +4,7 @@ import { api } from '../api';
 import { STAGES, CATEGORY_MAP } from '../constants';
 import { Card, Spinner, Button, CategoryBadge, PriorityBadge, DaysLeft } from '../components';
 import ProjectForm from '../ProjectForm';
+import LowStockCard from '../LowStock';
 
 function StatCard({ label, value, tone }) {
   const tones = {
@@ -81,6 +82,10 @@ export default function Dashboard() {
         <StatCard label="Completed This Month" value={stats.completedThisMonth} tone="green" />
         <StatCard label="Pieces Due This Week" value={Number(stats.unitsDueThisWeek || 0).toLocaleString()} tone="indigo" />
         <StatCard label="Pieces Due This Month" value={Number(stats.unitsDueThisMonth || 0).toLocaleString()} tone="indigo" />
+      </div>
+
+      <div className="mb-8">
+        <LowStockCard />
       </div>
 
       <h2 className="text-lg font-bold text-navy mb-3">Production Pipeline</h2>

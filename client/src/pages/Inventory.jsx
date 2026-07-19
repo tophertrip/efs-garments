@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { SIZES, INVENTORY_CATEGORIES, fmtDate } from '../constants';
 import { parseCsv, downloadText } from '../csv';
 import { Card, Spinner, Button, Modal, Field, Input, Select, ConfirmDialog } from '../components';
+import LowStockCard from '../LowStock';
 
 const canManageRoles = ['admin', 'purchasing'];
 
@@ -255,6 +256,11 @@ export default function Inventory() {
           <button onClick={downloadTemplate} className="text-xs underline mt-1 opacity-70 hover:opacity-100">Download CSV template</button>
         </div>
       )}
+
+      {/* Low-stock summary */}
+      <div className="mb-4">
+        <LowStockCard items={items} showLink={false} limit={8} />
+      </div>
 
       {/* Category filter */}
       <div className="flex flex-wrap gap-2 mb-4 print:hidden">

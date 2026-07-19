@@ -1090,6 +1090,22 @@ app.get('/api/inventory/items', auth, wrap(async (req, res) => {
   res.json(await query('SELECT * FROM inventory_items ORDER BY category, name'));
 }));
 
+// Items whose total stock is at/below their low-stock threshold (for dashboards).
+app.get('/api/inventory/low-stock', auth, wrap(async (req, res) => {
+  const items = await query('SELECT * FROM inventory_items ORDER BY category, name');
+  const stockRows = await query(`
+    SELECT item_id, SUM(CASE WHEN type = 'in' THEN qty ELSE -qty END)::int AS total
+    FROM inventory_txns GROUP BY item_id
+  `);
+  const totalById = {};
+  stockRows.forEach((r) => { totalById[r.item_id] = r.total; });
+  const low = items
+    .map((it) => ({ ...it, total: totalById[it.id] || 0 }))
+    .filter((it) => it.total <= (it.low_stock_threshold ?? 0))
+    .sort((a, b) => a.total - b.total);
+  res.json({ count: low.length, outOfStock: low.filter((i) => i.total <= 0).length, items: low });
+}));
+
 app.post('/api/inventory/items', auth, invManage, wrap(async (req, res) => {
   const { name, category, tracks_size, unit, low_stock_threshold } = req.body;
   if (!name || !category) return res.status(400).json({ error: 'Name and category are required' });
