@@ -700,6 +700,17 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
     ORDER BY sales DESC
   `, [yearStart, yearEnd]);
 
+  // POS / store sales summary (total, today, this month, by store).
+  const ymd = new Date().toISOString().slice(0, 10);
+  const ym = ymd.slice(0, 7);
+  const [posTot, posToday, posMonth, posByStore] = await Promise.all([
+    get('SELECT COALESCE(SUM(total),0)::float AS total, COUNT(*)::int AS count FROM store_sales'),
+    get("SELECT COALESCE(SUM(total),0)::float AS total, COUNT(*)::int AS count FROM store_sales WHERE sold_at::date = ?", [ymd]),
+    get("SELECT COALESCE(SUM(total),0)::float AS total FROM store_sales WHERE to_char(sold_at,'YYYY-MM') = ?", [ym]),
+    query('SELECT st.name AS store, COALESCE(SUM(sa.total),0)::float AS total, COUNT(*)::int AS count FROM store_sales sa LEFT JOIN stores st ON st.id = sa.store_id GROUP BY st.name ORDER BY total DESC'),
+  ]);
+  const pos = { total: posTot.total, count: posTot.count, today: posToday.total, todayCount: posToday.count, thisMonth: posMonth.total, byStore: posByStore };
+
   res.json({
     year,
     summary: {
@@ -712,7 +723,12 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
       projectsMonth: cur.projects,
       piecesYear: sum('pieces'),
       piecesMonth: cur.pieces,
+      // Combined collected sales across project payments + POS store sales.
+      collectedProjects: totalCollected,
+      collectedPos: pos.total,
+      collectedTotal: totalCollected + pos.total,
     },
+    pos,
     monthly,
     byCategory,
   });

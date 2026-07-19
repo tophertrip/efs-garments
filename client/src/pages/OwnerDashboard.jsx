@@ -101,9 +101,10 @@ export default function OwnerDashboard() {
   if (loading) return <Spinner />;
   if (!data) return <div className="text-gray-400 py-12 text-center">Could not load owner dashboard.</div>;
 
-  const { summary, monthly, year } = data;
+  const { summary, monthly, year, pos } = data;
   const currentMonth = new Date().getMonth() + 1;
   const num = (n) => Number(n || 0).toLocaleString();
+  const collectedTotal = summary.collectedTotal ?? (summary.totalCollected + (pos?.total || 0));
   const pieData = (data.byCategory || []).map((c, i) => ({
     label: catLabel(c.category), value: c.sales, color: PIE_COLORS[i % PIE_COLORS.length],
   }));
@@ -115,6 +116,16 @@ export default function OwnerDashboard() {
         <p className="text-gray-500 text-sm">Executive overview for {year}</p>
       </div>
 
+      {/* Total collected sales — projects + POS */}
+      <div className="mb-6 rounded-2xl p-6 bg-gradient-to-br from-navy to-navy-light text-white">
+        <div className="text-sm font-medium opacity-80">Total Collected Sales · Projects + POS</div>
+        <div className="text-4xl font-extrabold mt-1">{peso(collectedTotal)}</div>
+        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <span className="opacity-90">🧾 Project Payments: <b className="font-bold">{peso(summary.totalCollected)}</b></span>
+          <span className="opacity-90">🛒 POS Store Sales: <b className="font-bold">{peso(pos?.total || 0)}</b></span>
+        </div>
+      </div>
+
       {/* Year / Month totals */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <Kpi label="Total Collected (Paid)" value={peso(summary.totalCollected)} tone="green" />
@@ -124,6 +135,32 @@ export default function OwnerDashboard() {
         <Kpi label={`Total Pieces (${year})`} value={num(summary.piecesYear)} tone="indigo" />
         <Kpi label="Total Pieces (This Month)" value={num(summary.piecesMonth)} tone="indigo" />
       </div>
+
+      {/* Point of Sale summary */}
+      {pos && (
+        <Card className="p-5 mb-8">
+          <h2 className="font-bold text-navy mb-4">🛒 Point of Sale — Store Sales</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Kpi label="Total POS Sales" value={peso(pos.total)} tone="navy" />
+            <Kpi label="Sales Today" value={peso(pos.today)} tone="green" />
+            <Kpi label="This Month" value={peso(pos.thisMonth)} tone="gold" />
+            <Kpi label="Transactions" value={num(pos.count)} tone="light" />
+          </div>
+          {pos.byStore?.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Sales by Store</div>
+              <div className="space-y-1">
+                {pos.byStore.map((s) => (
+                  <div key={s.store || 'none'} className="flex justify-between text-sm border-b border-gray-50 py-1">
+                    <span className="text-gray-600">{s.store || '—'} <span className="text-gray-400">({s.count})</span></span>
+                    <span className="font-semibold text-navy">{peso(s.total)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Monthly graphs */}
       <div className="grid grid-cols-1 gap-6">
