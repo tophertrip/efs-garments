@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Button } from '../components';
@@ -9,12 +9,14 @@ export default function Login() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const pinRef = useRef(pin);
+  useEffect(() => { pinRef.current = pin; }, [pin]);
 
   function press(d) {
     setError('');
-    if (pin.length < 8) setPin(pin + d);
+    setPin((p) => (p.length < 8 ? p + d : p));
   }
-  function back() { setPin(pin.slice(0, -1)); }
+  function back() { setPin((p) => p.slice(0, -1)); }
 
   async function submit(value) {
     const code = value ?? pin;
@@ -32,6 +34,19 @@ export default function Login() {
     }
   }
 
+  // Allow typing the PIN on a physical keyboard (digits, Backspace, Enter).
+  useEffect(() => {
+    function onKey(e) {
+      if (busy) return;
+      if (e.key >= '0' && e.key <= '9') { e.preventDefault(); press(e.key); }
+      else if (e.key === 'Backspace') { e.preventDefault(); back(); }
+      else if (e.key === 'Enter') { e.preventDefault(); submit(pinRef.current); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-navy p-4">
       <div className="w-full max-w-sm">
@@ -40,7 +55,7 @@ export default function Login() {
             EFS
           </div>
           <h1 className="text-2xl font-extrabold text-white">EFS Garments Manufacturing</h1>
-          <p className="text-gray-300 text-sm mt-1">Production Tracker — enter your PIN</p>
+          <p className="text-gray-300 text-sm mt-1">Production Tracker — type or tap your PIN</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-6">
