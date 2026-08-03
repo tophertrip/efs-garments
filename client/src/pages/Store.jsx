@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { peso, fmtDateTime, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '../constants';
+import { peso, fmtDate, fmtDateTime, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '../constants';
 import { useAuth } from '../auth';
 import { Card, Spinner, Button, Modal, Field, Input, Textarea, Select, ConfirmDialog } from '../components';
 import CategoryManager from '../CategoryManager';
@@ -262,6 +262,7 @@ function SalesReport({ stores, refreshKey }) {
   const [editSale, setEditSale] = useState(null);
   const [delSale, setDelSale] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
+  const [showDaily, setShowDaily] = useState(false);
 
   async function confirmDelete() {
     setDelBusy(true);
@@ -297,6 +298,36 @@ function SalesReport({ stores, refreshKey }) {
       {sub && <div className="text-xs opacity-80 mt-0.5">{sub}</div>}
     </div>
   );
+
+  // Aggregates for the currently-filtered transactions (respects from/to/store).
+  const rangeCount = rows.length;
+  const rangeTotal = rows.reduce((a, r) => a + (r.total || 0), 0);
+  const rangeDiscount = rows.reduce((a, r) => a + (r.discount || 0), 0);
+  const rangeItems = rows.reduce((a, r) => a + (r.item_count || 0), 0);
+  const rangeAvg = rangeCount ? rangeTotal / rangeCount : 0;
+  const storeName = f.store_id ? (stores.find((s) => String(s.id) === String(f.store_id))?.name || '') : '';
+  const rangeLabel = (f.from || f.to) ? `${f.from || 'start'} → ${f.to || 'today'}` : 'All dates';
+
+  // Group the filtered transactions by their (local) day.
+  const localDay = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const daily = (() => {
+    const m = {};
+    rows.forEach((r) => {
+      const day = localDay(r.sold_at); if (!day) return;
+      (m[day] = m[day] || { day, count: 0, total: 0, discount: 0 });
+      m[day].count += 1; m[day].total += (r.total || 0); m[day].discount += (r.discount || 0);
+    });
+    return Object.values(m).sort((a, b) => b.day.localeCompare(a.day));
+  })();
+  function exportDaily() {
+    const headers = ['Date', 'Transactions', 'Discount', 'Total'];
+    const lines = daily.map((d) => [d.day, d.count, d.discount, d.total]);
+    const csv = [headers, ...lines].map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `efs-pos-daily-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div>
@@ -336,6 +367,51 @@ function SalesReport({ stores, refreshKey }) {
             </Select></label>
         </div>
       </Card>
+
+      {/* Summary for the selected date range (mirrors the filters above) */}
+      <Card className="p-4 mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h4 className="font-bold text-navy text-sm">Summary · {rangeLabel}{storeName ? ` · ${storeName}` : ''}</h4>
+          <button onClick={() => setShowDaily((v) => !v)} className="text-xs font-semibold text-navy hover:underline">
+            {showDaily ? 'Hide daily sales' : '📅 Show daily sales'}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-xl bg-cloud p-3"><div className="text-xs text-gray-500">Transactions</div><div className="text-xl font-extrabold text-navy">{rangeCount}</div><div className="text-[11px] text-gray-400">{rangeItems} item{rangeItems !== 1 ? 's' : ''}</div></div>
+          <div className="rounded-xl bg-cloud p-3"><div className="text-xs text-gray-500">Total Sales</div><div className="text-xl font-extrabold text-navy">{peso(rangeTotal)}</div></div>
+          <div className="rounded-xl bg-cloud p-3"><div className="text-xs text-gray-500">Discounts</div><div className="text-xl font-extrabold text-red-600">{rangeDiscount > 0 ? '− ' : ''}{peso(rangeDiscount)}</div></div>
+          <div className="rounded-xl bg-cloud p-3"><div className="text-xs text-gray-500">Avg / Sale</div><div className="text-xl font-extrabold text-navy">{peso(rangeAvg)}</div></div>
+        </div>
+
+        {showDaily && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Daily Sales · {daily.length} day{daily.length !== 1 ? 's' : ''}</h5>
+              <button onClick={exportDaily} disabled={!daily.length} className="text-xs text-navy hover:underline disabled:opacity-40">⬇ Export daily CSV</button>
+            </div>
+            <div className="overflow-x-auto border border-gray-100 rounded-lg max-h-72 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-cloud text-left sticky top-0"><tr>{['Date', 'Transactions', 'Discount', 'Total'].map((h) => <th key={h} className="px-3 py-2 font-semibold text-navy whitespace-nowrap">{h}</th>)}</tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {daily.length === 0 && <tr><td colSpan={4} className="text-center text-gray-400 py-6">No sales in this range.</td></tr>}
+                  {daily.map((d) => (
+                    <tr key={d.day} className="hover:bg-cloud">
+                      <td className="px-3 py-2 whitespace-nowrap font-medium text-navy">{fmtDate(d.day)}</td>
+                      <td className="px-3 py-2 text-gray-600">{d.count}</td>
+                      <td className="px-3 py-2 text-gray-500">{d.discount > 0 ? `− ${peso(d.discount)}` : '—'}</td>
+                      <td className="px-3 py-2 font-semibold text-navy whitespace-nowrap">{peso(d.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {daily.length > 0 && (
+                  <tfoot><tr className="border-t-2 border-gray-200 font-bold text-navy"><td className="px-3 py-2">Total</td><td className="px-3 py-2">{rangeCount}</td><td className="px-3 py-2">{rangeDiscount > 0 ? `− ${peso(rangeDiscount)}` : '—'}</td><td className="px-3 py-2 whitespace-nowrap">{peso(rangeTotal)}</td></tr></tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
