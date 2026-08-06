@@ -3,17 +3,19 @@ import { api } from './api';
 import { PAYMENT_METHODS, peso } from './constants';
 import { Modal, Field, Input, Select, Button } from './components';
 
-// Record a payment against a project. `project` should include id,
-// job_order_number, and (optionally) balance to prefill the amount.
-export default function PaymentModal({ project, onClose, onSaved }) {
+// Record OR edit a payment against a project. `project` should include id,
+// job_order_number, and (optionally) balance to prefill the amount. Pass
+// `payment` to edit an existing payment instead of creating a new one.
+export default function PaymentModal({ project, payment, onClose, onSaved }) {
+  const editing = Boolean(payment);
   const today = new Date().toISOString().slice(0, 10);
   const suggested = project?.balance > 0 ? String(project.balance) : '';
   const [form, setForm] = useState({
-    amount: suggested,
-    method: 'cash',
-    reference: '',
-    file_url: '',
-    paid_on: today,
+    amount: editing ? String(payment.amount ?? '') : suggested,
+    method: payment?.method || 'cash',
+    reference: payment?.reference || '',
+    file_url: payment?.file_url || '',
+    paid_on: payment?.paid_on || today,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -26,17 +28,18 @@ export default function PaymentModal({ project, onClose, onSaved }) {
     if (!amt || amt <= 0) { setError('Enter a positive amount'); return; }
     setBusy(true);
     try {
-      await api.post('/payments', { project_id: project.id, ...form, amount: amt });
+      if (editing) await api.put(`/payments/${payment.id}`, { ...form, amount: amt });
+      else await api.post('/payments', { project_id: project.id, ...form, amount: amt });
       onSaved?.();
       onClose();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
   return (
-    <Modal title={`Add Payment — ${project.job_order_number}`} onClose={onClose}>
+    <Modal title={`${editing ? 'Edit' : 'Add'} Payment — ${project.job_order_number}`} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg px-3 py-2">{error}</div>}
-        {project.balance != null && (
+        {!editing && project.balance != null && (
           <div className="text-sm text-gray-600 bg-cloud rounded-lg px-3 py-2">
             Remaining balance: <span className="font-bold text-navy">{peso(project.balance)}</span>
           </div>
@@ -62,7 +65,7 @@ export default function PaymentModal({ project, onClose, onSaved }) {
         </Field>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="gold" disabled={busy}>{busy ? 'Saving…' : 'Record Payment'}</Button>
+          <Button type="submit" variant="gold" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save Changes' : 'Record Payment'}</Button>
         </div>
       </form>
     </Modal>

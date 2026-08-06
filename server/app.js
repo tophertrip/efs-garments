@@ -971,6 +971,23 @@ app.post('/api/payments', auth, wrap(async (req, res) => {
 }));
 
 // Delete a payment (admin/finance — correction).
+// Edit a payment (admin/finance) — amount, method, reference, file link, date.
+app.put('/api/payments/:id', auth, wrap(async (req, res) => {
+  if (!['admin', 'finance'].includes(req.user.role)) return res.status(403).json({ error: 'Only admin or finance can edit payments' });
+  const existing = await get('SELECT * FROM payments WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'Payment not found' });
+  const { amount, method, reference, file_url, paid_on } = req.body;
+  const amt = amount === undefined ? Number(existing.amount) : Number(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
+  const fileUrl = file_url === undefined ? existing.file_url : (String(file_url || '').trim() || null);
+  const ref = reference === undefined ? existing.reference : (String(reference || '').trim() || null);
+  await run(
+    'UPDATE payments SET amount=?, method=?, reference=?, file_url=?, paid_on=? WHERE id=?',
+    [amt, method || existing.method, ref, fileUrl, paid_on || existing.paid_on, req.params.id]
+  );
+  res.json({ ok: true });
+}));
+
 app.delete('/api/payments/:id', auth, wrap(async (req, res) => {
   if (!['admin', 'finance'].includes(req.user.role)) return res.status(403).json({ error: 'Only admin or finance can delete payments' });
   await run('DELETE FROM payments WHERE id = ?', [req.params.id]);

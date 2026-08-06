@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { peso, fmtDate, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '../constants';
-import { Card, Spinner, Button, Input, Select, Empty } from '../components';
+import { Card, Spinner, Button, Input, Select, Empty, ConfirmDialog } from '../components';
+import { useAuth } from '../auth';
 import PaymentModal from '../PaymentModal';
 
 const STATUS_BADGE = {
@@ -33,12 +34,23 @@ function Stat({ label, value, tone = 'light' }) {
 const custName = (r) => r.customer_company || r.customer_name || '—';
 
 export default function Payments() {
+  const { user } = useAuth();
+  const canManage = ['admin', 'finance'].includes(user.role);
   const [summary, setSummary] = useState(null);
   const [projects, setProjects] = useState([]);
   const [txns, setTxns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payProject, setPayProject] = useState(null);
+  const [editPayment, setEditPayment] = useState(null);
+  const [delPayment, setDelPayment] = useState(null);
+  const [delBusy, setDelBusy] = useState(false);
   const [filters, setFilters] = useState({ from: '', to: '', method: '', project_id: '', status: '' });
+
+  async function confirmDelete() {
+    setDelBusy(true);
+    try { await api.del(`/payments/${delPayment.id}`); setDelPayment(null); refresh(); }
+    finally { setDelBusy(false); }
+  }
 
   async function loadCore() {
     const [s, pr] = await Promise.all([api.get('/payments/summary'), api.get('/payments/projects')]);
@@ -167,10 +179,11 @@ export default function Payments() {
                 {['Date', 'Job Order', 'Customer', 'Method', 'Reference #', 'File', 'Amount', 'Recorded By'].map((h) => (
                   <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
                 ))}
+                {canManage && <th className="px-4 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {txns.length === 0 && <tr><td colSpan={8} className="text-center text-gray-400 py-10">No payments match your filters.</td></tr>}
+              {txns.length === 0 && <tr><td colSpan={canManage ? 9 : 8} className="text-center text-gray-400 py-10">No payments match your filters.</td></tr>}
               {txns.map((t) => (
                 <tr key={t.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(t.paid_on)}</td>
@@ -183,6 +196,12 @@ export default function Payments() {
                   <td className="px-4 py-3 whitespace-nowrap">{t.file_url ? <a href={t.file_url} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline">📎 View</a> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-3 whitespace-nowrap font-semibold text-emerald-700">{peso(t.amount)}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.recorded_by_name || '—'}</td>
+                  {canManage && (
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      <button onClick={() => setEditPayment(t)} className="text-xs text-navy hover:underline">Edit</button>
+                      <button onClick={() => setDelPayment(t)} className="text-xs text-red-600 hover:underline ml-2">Delete</button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -191,7 +210,8 @@ export default function Payments() {
                 <tr className="border-t-2 border-gray-200 font-bold text-navy">
                   <td className="px-4 py-3" colSpan={6}>Total ({txns.length} payment{txns.length !== 1 ? 's' : ''})</td>
                   <td className="px-4 py-3 whitespace-nowrap">{peso(txnTotal)}</td>
-                  <td></td>
+                  <td />
+                  {canManage && <td />}
                 </tr>
               </tfoot>
             )}
@@ -201,6 +221,22 @@ export default function Payments() {
 
       {payProject && (
         <PaymentModal project={payProject} onClose={() => setPayProject(null)} onSaved={refresh} />
+      )}
+      {editPayment && (
+        <PaymentModal
+          project={{ id: editPayment.project_id, job_order_number: editPayment.job_order_number }}
+          payment={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={refresh}
+        />
+      )}
+      {delPayment && (
+        <ConfirmDialog
+          title="Delete this payment?"
+          message={`${peso(delPayment.amount)} · ${delPayment.job_order_number} · ${fmtDate(delPayment.paid_on)}. This cannot be undone.`}
+          confirmLabel="Delete payment" busy={delBusy}
+          onConfirm={confirmDelete} onClose={() => setDelPayment(null)}
+        />
       )}
     </div>
   );
