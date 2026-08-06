@@ -1169,7 +1169,7 @@ app.get('/api/expenses', auth, wrap(async (req, res) => {
   if (staff) { where.push('COALESCE(e.staff_name, s.name) = ?'); params.push(staff); }
   const rows = await query(`
     SELECT e.id, e.category, e.description, e.amount::float AS amount, e.vendor, e.method,
-           e.spent_on, e.created_at, e.project_id, p.job_order_number, p.project_name,
+           e.file_url, e.spent_on, e.created_at, e.project_id, p.job_order_number, p.project_name,
            COALESCE(e.staff_name, s.name) AS staff_name,
            u.name AS recorded_by_name
     FROM expenses e
@@ -1184,17 +1184,18 @@ app.get('/api/expenses', auth, wrap(async (req, res) => {
 
 // Record an expense.
 app.post('/api/expenses', auth, finGuard, wrap(async (req, res) => {
-  const { category, description, amount, vendor, method, project_id, staff_name, spent_on } = req.body;
+  const { category, description, amount, vendor, method, project_id, staff_name, file_url, spent_on } = req.body;
   const cat = String(category || '').trim();
   const staff = String(staff_name || '').trim() || null;
+  const fileUrl = String(file_url || '').trim() || null;
   const amt = Number(amount);
   if (!cat) return res.status(400).json({ error: 'Category is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
   const today = new Date().toISOString().slice(0, 10);
   const inserted = await run(`
-    INSERT INTO expenses (category, description, amount, vendor, method, project_id, staff_name, spent_on, recorded_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, spent_on || today, req.user.id]);
+    INSERT INTO expenses (category, description, amount, vendor, method, project_id, staff_name, file_url, spent_on, recorded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, fileUrl, spent_on || today, req.user.id]);
   await rememberCategory(cat);
   if (staff) await rememberStaff(staff);
   res.status(201).json({ id: inserted.rows[0].id });
@@ -1202,16 +1203,17 @@ app.post('/api/expenses', auth, finGuard, wrap(async (req, res) => {
 
 // Edit an expense.
 app.put('/api/expenses/:id', auth, finGuard, wrap(async (req, res) => {
-  const { category, description, amount, vendor, method, project_id, staff_name, spent_on } = req.body;
+  const { category, description, amount, vendor, method, project_id, staff_name, file_url, spent_on } = req.body;
   const cat = String(category || '').trim();
   const staff = String(staff_name || '').trim() || null;
+  const fileUrl = String(file_url || '').trim() || null;
   const amt = Number(amount);
   if (!cat) return res.status(400).json({ error: 'Category is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
   await run(`
-    UPDATE expenses SET category=?, description=?, amount=?, vendor=?, method=?, project_id=?, staff_name=?, staff_id=NULL, spent_on=?
+    UPDATE expenses SET category=?, description=?, amount=?, vendor=?, method=?, project_id=?, staff_name=?, staff_id=NULL, file_url=?, spent_on=?
     WHERE id=?
-  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, spent_on || null, req.params.id]);
+  `, [cat, description || null, amt, vendor || null, method || 'cash', project_id || null, staff, fileUrl, spent_on || null, req.params.id]);
   await rememberCategory(cat);
   if (staff) await rememberStaff(staff);
   res.json({ ok: true });

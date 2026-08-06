@@ -78,6 +78,7 @@ function ExpenseModal({ expense, projects, categories, staffNames, onCategoryAdd
     method: expense?.method || 'cash',
     project_id: expense?.project_id ? String(expense.project_id) : '',
     staff_name: expense?.staff_name || '',
+    file_url: expense?.file_url || '',
     spent_on: expense?.spent_on || today,
   });
   const [addingCat, setAddingCat] = useState(false);
@@ -171,6 +172,9 @@ function ExpenseModal({ expense, projects, categories, staffNames, onCategoryAdd
             {projects.map((p) => <option key={p.id} value={p.id}>{p.job_order_number}{p.project_name ? ` · ${p.project_name}` : ''}</option>)}
           </Select>
         </Field>
+        <Field label="Reference / Receipt file link (optional)">
+          <Input type="url" value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://… (receipt / reference file)" />
+        </Field>
         <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="gold" disabled={busy}>{busy ? 'Saving…' : 'Save expense'}</Button></div>
       </form>
     </Modal>
@@ -221,10 +225,10 @@ export default function Finance() {
   }
 
   function exportCsv() {
-    const headers = ['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'Amount', 'Recorded By'];
+    const headers = ['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'File Link', 'Amount', 'Recorded By'];
     const lines = rows.map((r) => [
       r.spent_on || '', r.category, r.description || '', r.vendor || '', r.staff_name || '',
-      PAYMENT_METHOD_LABEL[r.method] || r.method, r.job_order_number || '', r.amount, r.recorded_by_name || '',
+      PAYMENT_METHOD_LABEL[r.method] || r.method, r.job_order_number || '', r.file_url || '', r.amount, r.recorded_by_name || '',
     ]);
     const csv = [headers, ...lines].map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -340,10 +344,10 @@ export default function Finance() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
-              <tr>{['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'Amount'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th className="print:hidden" />}</tr>
+              <tr>{['Date', 'Category', 'Description', 'Vendor', 'Staff', 'Method', 'Job Order', 'File', 'Amount'].map((h) => <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}{canManage && <th className="print:hidden" />}</tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.length === 0 && <tr><td colSpan={9} className="text-center text-gray-400 py-10">No expenses match your filters.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={canManage ? 10 : 9} className="text-center text-gray-400 py-10">No expenses match your filters.</td></tr>}
               {rows.map((r) => (
                 <tr key={r.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(r.spent_on)}</td>
@@ -353,6 +357,7 @@ export default function Finance() {
                   <td className="px-4 py-3 text-gray-600">{r.staff_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{PAYMENT_METHOD_LABEL[r.method] || r.method}</td>
                   <td className="px-4 py-3 text-gray-500">{r.job_order_number || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{r.file_url ? <a href={r.file_url} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline">📎 View</a> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-3 font-semibold text-red-600 whitespace-nowrap">{peso(r.amount)}</td>
                   {canManage && (
                     <td className="px-2 py-3 whitespace-nowrap text-right print:hidden">

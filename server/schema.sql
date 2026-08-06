@@ -129,12 +129,14 @@ CREATE TABLE IF NOT EXISTS expenses (
   project_id INTEGER REFERENCES projects(id),
   staff_id INTEGER REFERENCES users(id),
   staff_name TEXT,
+  file_url TEXT,
   spent_on DATE,
   recorded_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_id INTEGER REFERENCES users(id);
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS staff_name TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS file_url TEXT;
 
 -- Store module — products + per-store pricing across multiple stores.
 CREATE TABLE IF NOT EXISTS stores (
