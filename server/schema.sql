@@ -86,10 +86,12 @@ CREATE TABLE IF NOT EXISTS payments (
   amount NUMERIC(10,2) NOT NULL,
   method TEXT DEFAULT 'cash',
   reference TEXT,
+  file_url TEXT,
   paid_on DATE,
   recorded_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_url TEXT;
 
 -- Inventory items + IN/OUT stock transactions (per item, per size).
 CREATE TABLE IF NOT EXISTS inventory_items (

@@ -318,6 +318,7 @@ export default function ProjectDetail() {
                   <span className="font-semibold text-emerald-700">{peso(pay.amount)}</span>
                   <span className="text-gray-500"> · {PAYMENT_METHOD_LABEL[pay.method] || pay.method}</span>
                   {pay.reference && <span className="text-gray-400"> · {pay.reference}</span>}
+                  {pay.file_url && <a href={pay.file_url} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline ml-1">· 📎 file</a>}
                 </div>
                 <div className="text-xs text-gray-400">{fmtDate(pay.paid_on)}{pay.recorded_by_name ? ` · ${pay.recorded_by_name}` : ''}</div>
               </li>

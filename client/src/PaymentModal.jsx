@@ -12,6 +12,7 @@ export default function PaymentModal({ project, onClose, onSaved }) {
     amount: suggested,
     method: 'cash',
     reference: '',
+    file_url: '',
     paid_on: today,
   });
   const [busy, setBusy] = useState(false);
@@ -55,6 +56,9 @@ export default function PaymentModal({ project, onClose, onSaved }) {
         </div>
         <Field label="Reference #">
           <Input value={form.reference} onChange={(e) => set('reference', e.target.value)} placeholder="GCash ref, OR #, etc." />
+        </Field>
+        <Field label="Payment file link (optional)">
+          <Input type="url" value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://… (receipt / proof of payment)" />
         </Field>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

@@ -110,7 +110,7 @@ async function getProjectFull(id) {
     ORDER BY t.is_done ASC, t.due_date ASC
   `, [id]);
   project.payments = await query(`
-    SELECT pay.id, pay.amount::float AS amount, pay.method, pay.reference, pay.paid_on,
+    SELECT pay.id, pay.amount::float AS amount, pay.method, pay.reference, pay.file_url, pay.paid_on,
            pay.created_at, u.name AS recorded_by_name
     FROM payments pay
     LEFT JOIN users u ON u.id = pay.recorded_by
@@ -933,7 +933,7 @@ app.get('/api/payments', auth, wrap(async (req, res) => {
   if (project_id) { where.push('pay.project_id = ?'); params.push(project_id); }
 
   let rows = await query(`
-    SELECT pay.id, pay.paid_on, pay.amount::float AS amount, pay.method, pay.reference, pay.created_at,
+    SELECT pay.id, pay.paid_on, pay.amount::float AS amount, pay.method, pay.reference, pay.file_url, pay.created_at,
            p.id AS project_id, p.job_order_number, p.project_name,
            c.name AS customer_name, c.company AS customer_company,
            u.name AS recorded_by_name
@@ -956,7 +956,7 @@ app.get('/api/payments', auth, wrap(async (req, res) => {
 
 // Record a payment.
 app.post('/api/payments', auth, wrap(async (req, res) => {
-  const { project_id, amount, method, reference, paid_on } = req.body;
+  const { project_id, amount, method, reference, file_url, paid_on } = req.body;
   const amt = Number(amount);
   if (!project_id) return res.status(400).json({ error: 'Project is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
@@ -964,9 +964,9 @@ app.post('/api/payments', auth, wrap(async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const today = new Date().toISOString().slice(0, 10);
   const inserted = await run(`
-    INSERT INTO payments (project_id, amount, method, reference, paid_on, recorded_by)
-    VALUES (?, ?, ?, ?, ?, ?) RETURNING id
-  `, [project_id, amt, method || 'cash', reference || null, paid_on || today, req.user.id]);
+    INSERT INTO payments (project_id, amount, method, reference, file_url, paid_on, recorded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+  `, [project_id, amt, method || 'cash', reference || null, (file_url || '').trim() || null, paid_on || today, req.user.id]);
   res.status(201).json({ id: inserted.rows[0].id });
 }));
 

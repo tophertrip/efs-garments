@@ -59,10 +59,10 @@ export default function Payments() {
   const txnTotal = txns.reduce((a, t) => a + (t.amount || 0), 0);
 
   function exportCsv() {
-    const headers = ['Date', 'Job Order', 'Customer', 'Method', 'Reference', 'Amount', 'Recorded By'];
+    const headers = ['Date', 'Job Order', 'Customer', 'Method', 'Reference', 'File Link', 'Amount', 'Recorded By'];
     const lines = txns.map((t) => [
       t.paid_on || '', t.job_order_number || '', custName(t),
-      PAYMENT_METHOD_LABEL[t.method] || t.method, t.reference || '', t.amount, t.recorded_by_name || '',
+      PAYMENT_METHOD_LABEL[t.method] || t.method, t.reference || '', t.file_url || '', t.amount, t.recorded_by_name || '',
     ]);
     const csv = [headers, ...lines].map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -164,13 +164,13 @@ export default function Payments() {
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
-                {['Date', 'Job Order', 'Customer', 'Method', 'Reference #', 'Amount', 'Recorded By'].map((h) => (
+                {['Date', 'Job Order', 'Customer', 'Method', 'Reference #', 'File', 'Amount', 'Recorded By'].map((h) => (
                   <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {txns.length === 0 && <tr><td colSpan={7} className="text-center text-gray-400 py-10">No payments match your filters.</td></tr>}
+              {txns.length === 0 && <tr><td colSpan={8} className="text-center text-gray-400 py-10">No payments match your filters.</td></tr>}
               {txns.map((t) => (
                 <tr key={t.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(t.paid_on)}</td>
@@ -180,6 +180,7 @@ export default function Payments() {
                   <td className="px-4 py-3">{custName(t)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{PAYMENT_METHOD_LABEL[t.method] || t.method}</td>
                   <td className="px-4 py-3 text-gray-500">{t.reference || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{t.file_url ? <a href={t.file_url} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline">📎 View</a> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-3 whitespace-nowrap font-semibold text-emerald-700">{peso(t.amount)}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.recorded_by_name || '—'}</td>
                 </tr>
@@ -188,7 +189,7 @@ export default function Payments() {
             {txns.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-gray-200 font-bold text-navy">
-                  <td className="px-4 py-3" colSpan={5}>Total ({txns.length} payment{txns.length !== 1 ? 's' : ''})</td>
+                  <td className="px-4 py-3" colSpan={6}>Total ({txns.length} payment{txns.length !== 1 ? 's' : ''})</td>
                   <td className="px-4 py-3 whitespace-nowrap">{peso(txnTotal)}</td>
                   <td></td>
                 </tr>
