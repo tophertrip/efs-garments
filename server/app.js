@@ -597,10 +597,29 @@ app.delete('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
     const { n } = await get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'");
     if (n <= 1) return res.status(400).json({ error: 'Cannot delete the only admin' });
   }
-  // Keep referential history intact: null out this user's task/log references.
-  await run('UPDATE tasks SET assigned_to = NULL WHERE assigned_to = ?', [req.params.id]);
-  await run('UPDATE project_logs SET changed_by = NULL WHERE changed_by = ?', [req.params.id]);
-  await run('DELETE FROM users WHERE id = ?', [req.params.id]);
+  // Keep referential history intact: detach this user from every record that
+  // references them (tasks, logs, payments, expenses, inventory, sales,
+  // activity), then delete the account — all atomically.
+  const id = req.params.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE tasks SET assigned_to = NULL WHERE assigned_to = $1', [id]);
+    await client.query('UPDATE project_logs SET changed_by = NULL WHERE changed_by = $1', [id]);
+    await client.query('UPDATE payments SET recorded_by = NULL WHERE recorded_by = $1', [id]);
+    await client.query('UPDATE expenses SET recorded_by = NULL WHERE recorded_by = $1', [id]);
+    await client.query('UPDATE expenses SET staff_id = NULL WHERE staff_id = $1', [id]);
+    await client.query('UPDATE inventory_txns SET recorded_by = NULL WHERE recorded_by = $1', [id]);
+    await client.query('UPDATE store_sales SET sold_by = NULL WHERE sold_by = $1', [id]);
+    await client.query('UPDATE activity_log SET user_id = NULL WHERE user_id = $1', [id]);
+    await client.query('DELETE FROM users WHERE id = $1', [id]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
   res.json({ ok: true });
 }));
 
