@@ -122,7 +122,7 @@ export default function ProjectsList() {
 
       <Card className="p-4 mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <Input placeholder="🔍 Search customer / JO #" value={filters.search} onChange={(e) => set('search', e.target.value)} />
+          <Input placeholder="🔍 Search project, JO #, customer…" value={filters.search} onChange={(e) => set('search', e.target.value)} />
           <Select value={filters.status} onChange={(e) => set('status', e.target.value)}>
             <option value="">All statuses</option>
             {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}

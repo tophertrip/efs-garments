@@ -214,8 +214,9 @@ app.get('/api/projects', auth, wrap(async (req, res) => {
   if (from) { where.push('p.target_date >= ?'); params.push(from); }
   if (to) { where.push('p.target_date <= ?'); params.push(to); }
   if (search) {
-    where.push('(c.name ILIKE ? OR p.job_order_number ILIKE ?)');
-    params.push(`%${search}%`, `%${search}%`);
+    const like = `%${search.trim()}%`;
+    where.push('(p.project_name ILIKE ? OR p.job_order_number ILIKE ? OR c.name ILIKE ? OR c.company ILIKE ? OR p.description ILIKE ?)');
+    params.push(like, like, like, like, like);
   }
   const rows = await query(`
     SELECT p.*, c.name AS customer_name, c.company AS customer_company
