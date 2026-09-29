@@ -7,6 +7,19 @@ import { Card, Spinner, Button, Modal, Field, Input, Select, ConfirmDialog } fro
 
 const ROLES = Object.keys(ROLE_LABELS);
 
+function actIcon(action = '') {
+  const a = action.toLowerCase();
+  if (a.includes('logged in')) return '🔑';
+  if (a.includes('reset')) return '🧨';
+  if (a.includes('restore')) return '♻️';
+  if (a.includes('backup')) return '💾';
+  if (a.includes('import')) return '⬆️';
+  if (a.startsWith('created')) return '🆕';
+  if (a.startsWith('updated')) return '✏️';
+  if (a.startsWith('deleted')) return '🗑️';
+  return '•';
+}
+
 function UserModal({ user, onClose, onSaved }) {
   const editing = Boolean(user);
   const [form, setForm] = useState(() => ({
@@ -76,8 +89,12 @@ export default function UserManagement() {
   useEffect(() => { setDraft(JSON.parse(JSON.stringify(perms || {}))); }, [perms]);
 
   const [activity, setActivity] = useState([]);
-  async function loadActivity() { setActivity(await api.get('/admin/activity').catch(() => [])); }
-  useEffect(() => { loadActivity(); }, []);
+  const [actSearch, setActSearch] = useState('');
+  async function loadActivity(q = actSearch) {
+    const url = '/admin/activity' + (q ? `?search=${encodeURIComponent(q)}` : '');
+    setActivity(await api.get(url).catch(() => []));
+  }
+  useEffect(() => { const t = setTimeout(() => loadActivity(actSearch), 250); return () => clearTimeout(t); /* eslint-disable-next-line */ }, [actSearch]);
 
   function toggleTab(role, tab) {
     setPermsSaved(false);
@@ -299,20 +316,23 @@ export default function UserManagement() {
         </div>
       </Card>
 
-      {/* Activity Log — audit trail of major changes */}
+      {/* Activity Log — audit trail of all logins and changes */}
       <Card className="overflow-hidden mt-8">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-wrap gap-2">
           <div>
             <h2 className="font-bold text-navy">Activity Log</h2>
-            <p className="text-xs text-gray-500">Major changes — imports, resets, restores and backups.</p>
+            <p className="text-xs text-gray-500">Logins and every create / edit / delete across the app (newest first).</p>
           </div>
-          <button onClick={loadActivity} className="text-xs font-medium text-navy hover:underline">↻ Refresh</button>
+          <div className="flex items-center gap-2">
+            <Input className="!py-1 text-sm w-48" placeholder="🔍 Filter (user, action…)" value={actSearch} onChange={(e) => setActSearch(e.target.value)} />
+            <button onClick={() => loadActivity()} className="text-xs font-medium text-navy hover:underline whitespace-nowrap">↻ Refresh</button>
+          </div>
         </div>
-        <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-          {activity.length === 0 && <div className="text-center text-gray-400 py-8 text-sm">No activity recorded yet.</div>}
+        <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
+          {activity.length === 0 && <div className="text-center text-gray-400 py-8 text-sm">{actSearch ? 'No matching activity.' : 'No activity recorded yet.'}</div>}
           {activity.map((a) => (
             <div key={a.id} className="flex items-start gap-3 px-4 py-2.5 text-sm">
-              <span className="mt-0.5">{a.action.includes('reset') ? '🧨' : a.action.includes('restore') ? '♻️' : a.action.includes('import') ? '⬆️' : a.action.includes('backup') ? '⬇️' : '•'}</span>
+              <span className="mt-0.5">{actIcon(a.action)}</span>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-navy">{a.action}</div>
                 {a.details && <div className="text-xs text-gray-500">{a.details}</div>}

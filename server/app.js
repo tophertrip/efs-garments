@@ -46,7 +46,7 @@ async function writeSetting(key, value) {
   else await run('INSERT INTO app_settings (key, value) VALUES (?, ?)', [key, value]);
 }
 
-// Record a major change to the activity log (best-effort — never blocks the op).
+// Record an activity-log entry (best-effort — never blocks the op).
 async function logActivity(userId, action, details) {
   try {
     await run('INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)', [userId || null, action, details || null]);
@@ -54,6 +54,72 @@ async function logActivity(userId, action, details) {
     console.error('activity log failed:', e.message);
   }
 }
+
+// ---------------------------------------------------------------------------
+// AUDIT — automatically log every create / update / delete across the app.
+// Runs after the response so req.user (set by each route's auth guard) is known.
+// Endpoints that log their own richer entry set req._activityLogged to skip this.
+// ---------------------------------------------------------------------------
+const AUDIT_VERB = { POST: 'Created', PUT: 'Updated', PATCH: 'Updated', DELETE: 'Deleted' };
+const AUDIT_ROUTES = [
+  [/^\/api\/projects\/\d+\/(stage|advance|status)/, 'project stage'],
+  [/^\/api\/projects\/import$/, 'project import'],
+  [/^\/api\/projects(\/\d+)?$/, 'project'],
+  [/^\/api\/customers(\/\d+)?$/, 'customer'],
+  [/^\/api\/customer-sources/, 'customer source'],
+  [/^\/api\/payments(\/\d+)?$/, 'payment'],
+  [/^\/api\/expenses\/(categories|staff)/, 'expense category'],
+  [/^\/api\/expenses(\/\d+)?$/, 'expense'],
+  [/^\/api\/inventory\/items(\/\d+)?$/, 'inventory item'],
+  [/^\/api\/inventory\/txns(\/\d+)?$/, 'inventory transaction'],
+  [/^\/api\/inventory\/import$/, 'inventory import'],
+  [/^\/api\/store\/products(\/\d+)?$/, 'store product'],
+  [/^\/api\/store\/categories/, 'product category'],
+  [/^\/api\/store\/sales(\/\d+)?$/, 'POS sale'],
+  [/^\/api\/stores(\/\d+)?$/, 'store'],
+  [/^\/api\/categories(\/[^/]+)?$/, 'project category'],
+  [/^\/api\/tasks\/\d+\/done$/, 'reminder status'],
+  [/^\/api\/tasks(\/\d+)?$/, 'reminder'],
+  [/^\/api\/permissions$/, 'role permissions'],
+  [/^\/api\/admin\/users(\/\d+)?$/, 'user account'],
+];
+const AUDIT_BODY_FIELDS = ['job_order_number', 'project_name', 'name', 'title', 'category', 'amount', 'total', 'method', 'to_status', 'status', 'staff_name', 'vendor', 'reference'];
+
+function auditLabel(path, method) {
+  const verb = AUDIT_VERB[method];
+  if (!verb) return null;
+  for (const [re, label] of AUDIT_ROUTES) if (re.test(path)) return `${verb} ${label}`;
+  const seg = path.replace(/^\/api\//, '').split('/').filter((s) => s && !/^\d+$/.test(s));
+  return `${verb} ${seg.join(' ') || 'record'}`;
+}
+function auditDetails(path, body) {
+  const parts = [];
+  const idm = path.match(/\/(\d+)(?:\/|$)/);
+  if (idm) parts.push('#' + idm[1]);
+  const b = body || {};
+  const extra = [];
+  for (const k of AUDIT_BODY_FIELDS) {
+    if (b[k] != null && typeof b[k] !== 'object' && String(b[k]).trim() !== '') extra.push(`${k}: ${String(b[k]).slice(0, 40)}`);
+  }
+  if (extra.length) parts.push(extra.slice(0, 3).join(', '));
+  return parts.join(' · ') || null;
+}
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    try {
+      if (req._activityLogged) return;
+      if (!AUDIT_VERB[req.method]) return;
+      if (res.statusCode >= 400) return;
+      if (!req.user || !req.user.id) return;
+      const path = (req.path || req.originalUrl || '').split('?')[0];
+      if (path.startsWith('/api/auth')) return;
+      const action = auditLabel(path, req.method);
+      if (action) logActivity(req.user.id, action, auditDetails(path, req.body));
+    } catch (e) { /* never break the response */ }
+  });
+  next();
+});
 
 // Default per-role tab visibility (used until an admin customizes it).
 const DEFAULT_TAB_PERMS = {
@@ -147,6 +213,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   if (!pin) return res.status(400).json({ error: 'PIN required' });
   const user = await get('SELECT * FROM users WHERE pin = ?', [String(pin)]);
   if (!user) return res.status(401).json({ error: 'Invalid PIN' });
+  await logActivity(user.id, 'Logged in', user.role);
   res.json({
     token: makeToken(user),
     user: { id: user.id, name: user.name, role: user.role },
@@ -354,6 +421,7 @@ app.post('/api/projects/import', auth, wrap(async (req, res) => {
       created += 1;
     } catch (e) { skipped.push({ line, reason: e.message }); }
   }
+  req._activityLogged = true;
   await logActivity(req.user.id, 'Projects imported (CSV)', `${created} created, ${skipped.length} skipped`);
   res.json({ created, skipped });
 }));
@@ -1410,6 +1478,7 @@ app.post('/api/inventory/import', auth, invManage, wrap(async (req, res) => {
       }
     } catch (e) { skipped.push({ line, reason: e.message }); }
   }
+  req._activityLogged = true;
   await logActivity(req.user.id, 'Inventory imported (CSV)', `${created} created, ${updated} updated, ${stockAdjusted} stock adj, ${skipped.length} skipped`);
   res.json({ created, updated, stockAdjusted, skipped });
 }));
@@ -1673,6 +1742,7 @@ app.put('/api/store/sales/:id', auth, admin, wrap(async (req, res) => {
     UPDATE store_sales SET customer_name=?, payment_method=?, order_discount=?, discount_note=?, discount=?, total=?
     WHERE id=?
   `, [customer_name || null, payment_method || sale.payment_method, orderDiscount, discountNote, discountTotal, total, req.params.id]);
+  req._activityLogged = true;
   await logActivity(req.user.id, 'POS sale edited', `Sale #${req.params.id} — total ${total}`);
   res.json({ ok: true, total });
 }));
@@ -1683,6 +1753,7 @@ app.delete('/api/store/sales/:id', auth, admin, wrap(async (req, res) => {
   if (!sale) return res.status(404).json({ error: 'Sale not found' });
   await run('DELETE FROM store_sale_items WHERE sale_id = ?', [req.params.id]);
   await run('DELETE FROM store_sales WHERE id = ?', [req.params.id]);
+  req._activityLogged = true;
   await logActivity(req.user.id, 'POS sale deleted', `Sale #${req.params.id} — total ${sale.total}`);
   res.json({ ok: true });
 }));
@@ -1729,11 +1800,17 @@ app.get('/api/admin/backup', auth, admin, wrap(async (req, res) => {
 
 // Recent major-change activity (admin).
 app.get('/api/admin/activity', auth, admin, wrap(async (req, res) => {
+  const { search, user_id } = req.query;
+  const where = [];
+  const params = [];
+  if (user_id) { where.push('a.user_id = ?'); params.push(user_id); }
+  if (search) { const l = `%${String(search).trim()}%`; where.push('(a.action ILIKE ? OR a.details ILIKE ? OR u.name ILIKE ?)'); params.push(l, l, l); }
   res.json(await query(`
     SELECT a.id, a.action, a.details, a.created_at, u.name AS user_name, u.role AS user_role
     FROM activity_log a LEFT JOIN users u ON u.id = a.user_id
-    ORDER BY a.id DESC LIMIT 200
-  `));
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY a.id DESC LIMIT 500
+  `, params));
 }));
 
 // Replace ALL data with the contents of a backup file.
@@ -1782,6 +1859,7 @@ app.post('/api/admin/restore', auth, admin, wrap(async (req, res) => {
     client.release();
   }
   const totalRecords = Object.values(counts).reduce((a, n) => a + n, 0);
+  req._activityLogged = true;
   await logActivity(req.user.id, 'Database restored from backup', `${totalRecords} records loaded`);
   res.json({ ok: true, restored: counts });
 }));
@@ -1803,6 +1881,7 @@ app.post('/api/admin/reset', auth, admin, wrap(async (req, res) => {
   } finally {
     client.release();
   }
+  req._activityLogged = true;
   await logActivity(req.user.id, 'Database reset', `Cleared: ${RESET_TABLES.join(', ')}`);
   res.json({ ok: true, cleared: RESET_TABLES });
 }));
