@@ -63,6 +63,8 @@ async function logActivity(userId, action, details) {
 const AUDIT_VERB = { POST: 'Created', PUT: 'Updated', PATCH: 'Updated', DELETE: 'Deleted' };
 const AUDIT_ROUTES = [
   [/^\/api\/projects\/\d+\/(stage|advance|status)/, 'project stage'],
+  [/^\/api\/projects\/\d+\/comments/, 'project comment'],
+  [/^\/api\/comments(\/\d+)?$/, 'project comment'],
   [/^\/api\/projects\/import$/, 'project import'],
   [/^\/api\/projects(\/\d+)?$/, 'project'],
   [/^\/api\/customers(\/\d+)?$/, 'customer'],
@@ -707,6 +709,62 @@ app.put('/api/permissions', auth, admin, wrap(async (req, res) => {
     [JSON.stringify(map)]
   );
   res.json(await getPermissions());
+}));
+
+// ---------------------------------------------------------------------------
+// PROJECT COMMENTS — updates feed with @mentions of other users
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/comments', auth, wrap(async (req, res) => {
+  res.json(await query(`
+    SELECT c.id, c.body, c.mentions, c.created_at, c.user_id,
+           u.name AS user_name, u.role AS user_role
+    FROM project_comments c LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.project_id = ?
+    ORDER BY c.id ASC
+  `, [req.params.id]));
+}));
+
+app.post('/api/projects/:id/comments', auth, wrap(async (req, res) => {
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'Comment cannot be empty' });
+  const project = await get('SELECT id, job_order_number FROM projects WHERE id = ?', [req.params.id]);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  // Validate @mentions against real users; drop the author and duplicates.
+  let mentions = Array.isArray(req.body?.mentions) ? req.body.mentions.map(Number).filter(Boolean) : [];
+  if (mentions.length) {
+    const valid = await query('SELECT id FROM users WHERE id = ANY(?)', [mentions]);
+    const validIds = new Set(valid.map((v) => v.id));
+    mentions = [...new Set(mentions.filter((m) => validIds.has(m) && m !== req.user.id))];
+  }
+
+  const inserted = await run(
+    'INSERT INTO project_comments (project_id, user_id, body, mentions) VALUES (?, ?, ?, ?) RETURNING id',
+    [req.params.id, req.user.id, body, JSON.stringify(mentions)]
+  );
+
+  // Notify each mentioned user via a reminder linked to this project.
+  const snippet = body.length > 120 ? body.slice(0, 117) + '…' : body;
+  for (const uid of mentions) {
+    await run('INSERT INTO tasks (project_id, assigned_to, title, description) VALUES (?, ?, ?, ?)',
+      [req.params.id, uid, `Tagged in ${project.job_order_number}`, snippet]);
+  }
+
+  const full = await get(`
+    SELECT c.id, c.body, c.mentions, c.created_at, c.user_id, u.name AS user_name, u.role AS user_role
+    FROM project_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?
+  `, [inserted.rows[0].id]);
+  res.status(201).json(full);
+}));
+
+app.delete('/api/comments/:id', auth, wrap(async (req, res) => {
+  const c = await get('SELECT user_id FROM project_comments WHERE id = ?', [req.params.id]);
+  if (!c) return res.status(404).json({ error: 'Comment not found' });
+  if (c.user_id !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only the author or an admin can delete a comment' });
+  }
+  await run('DELETE FROM project_comments WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -1766,14 +1824,14 @@ app.delete('/api/store/sales/:id', auth, admin, wrap(async (req, res) => {
 // Tables in foreign-key dependency order (parents first). Insert in this order
 // on restore; delete in reverse.
 const BACKUP_TABLES = [
-  'users', 'customers', 'categories', 'projects', 'project_items',
+  'users', 'customers', 'categories', 'projects', 'project_items', 'project_comments',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
   'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
   'activity_log', 'app_settings',
 ];
 // Tables whose id sequence must be re-synced after a restore.
 const SERIAL_TABLES = [
-  'users', 'customers', 'categories', 'projects', 'project_items',
+  'users', 'customers', 'categories', 'projects', 'project_items', 'project_comments',
   'project_logs', 'tasks', 'payments', 'expenses', 'inventory_items', 'inventory_txns',
   'stores', 'store_products', 'store_product_variants', 'store_prices', 'store_sales', 'store_sale_items',
   'activity_log',
@@ -1783,7 +1841,7 @@ const SERIAL_TABLES = [
 // permissions keep working after a reset.
 const RESET_TABLES = [
   'store_sale_items', 'store_sales', 'store_prices', 'store_product_variants', 'store_products', 'stores',
-  'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_logs', 'project_items', 'projects', 'customers',
+  'inventory_txns', 'inventory_items', 'expenses', 'payments', 'tasks', 'project_comments', 'project_logs', 'project_items', 'projects', 'customers',
 ];
 
 // Download a full snapshot of the database.

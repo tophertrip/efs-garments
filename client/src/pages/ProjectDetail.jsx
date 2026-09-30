@@ -10,6 +10,7 @@ import {
 } from '../components';
 import ProjectForm from '../ProjectForm';
 import PaymentModal from '../PaymentModal';
+import ProjectComments from '../ProjectComments';
 
 function Timeline({ project }) {
   const currentIdx = STAGE_KEYS.indexOf(project.status);
@@ -83,7 +84,7 @@ function AddTaskModal({ projectId, users, onClose, onSaved }) {
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [project, setProject] = useState(null);
   const [users, setUsers] = useState([]);
   const [advancing, setAdvancing] = useState(false);
@@ -285,6 +286,9 @@ export default function ProjectDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Updates & Comments (with @mentions) — before Payments */}
+      <ProjectComments projectId={id} users={users} currentUser={user} isAdmin={isAdmin} />
 
       {/* Payments */}
       <Card className="p-5 mt-6">

@@ -215,6 +215,16 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Project comments / updates feed (with @mentions of other users).
+CREATE TABLE IF NOT EXISTS project_comments (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  body TEXT NOT NULL,
+  mentions JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- App settings (key/value JSON) — e.g. per-role tab permissions.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
