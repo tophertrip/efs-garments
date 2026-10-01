@@ -56,6 +56,7 @@ export default function Reports() {
   const [data, setData] = useState(null);
   const [finance, setFinance] = useState(null);
   const [posSales, setPosSales] = useState(null);
+  const [expenses, setExpenses] = useState(null);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState('revenue'); // which measure the bars show
 
@@ -69,6 +70,8 @@ export default function Reports() {
     setFinance(await api.get('/payments/summary'));
     // POS / store sales — synced from the Point of Sale module.
     setPosSales(await api.get('/store/sales/summary').catch(() => null));
+    // Expenses summary — from the Finance module.
+    setExpenses(await api.get('/expenses/summary').catch(() => null));
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [opts]);
@@ -203,6 +206,48 @@ export default function Reports() {
               {posSales.byStore.map((s) => (
                 <span key={s.store || 'none'}><span className="font-semibold text-navy">{s.store || '—'}:</span> {peso(s.total)} <span className="text-gray-400">({s.count})</span></span>
               ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Expenses Summary — from the Finance module */}
+      {expenses && expenses.count > 0 && (
+        <Card className="p-5 mb-6">
+          <h2 className="font-bold text-navy mb-4">🧾 Expenses Summary <span className="text-xs font-normal text-gray-400">(from the Finance module)</span></h2>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="rounded-xl p-5 bg-red-600 text-white">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total Expenses</div>
+              <div className="text-2xl font-extrabold mt-1">{peso(expenses.total)}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-orange-50 border border-orange-200">
+              <div className="text-xs font-semibold text-orange-700 uppercase tracking-wide">This Month</div>
+              <div className="text-2xl font-extrabold text-orange-800 mt-1">{peso(expenses.thisMonth)}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions</div>
+              <div className="text-2xl font-extrabold text-navy mt-1">{expenses.count}</div>
+            </div>
+            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg / Expense</div>
+              <div className="text-2xl font-extrabold text-navy mt-1">{peso(expenses.count ? expenses.total / expenses.count : 0)}</div>
+            </div>
+          </div>
+          {expenses.byCategory && expenses.byCategory.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By Category</div>
+              <div className="space-y-1.5">
+                {expenses.byCategory.map((c) => (
+                  <div key={c.category} className="flex items-center gap-3 text-sm">
+                    <span className="text-gray-700 w-40 shrink-0 truncate">{c.category} <span className="text-gray-400">({c.count})</span></span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-full bg-red-400 rounded-full" style={{ width: `${expenses.total ? Math.round((c.total / expenses.total) * 100) : 0}%` }} />
+                    </div>
+                    <span className="font-semibold text-navy w-24 text-right shrink-0">{peso(c.total)}</span>
+                    <span className="text-xs text-gray-400 w-10 text-right shrink-0">{expenses.total ? Math.round((c.total / expenses.total) * 100) : 0}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </Card>
