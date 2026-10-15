@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { STAGES, fmtDate } from '../constants';
+import { STAGES, fmtDate, peso } from '../constants';
 import { parseCsv, downloadText } from '../csv';
 import { useCategories } from '../categories';
 import { useAuth } from '../auth';
@@ -21,6 +21,7 @@ export default function ProjectsList() {
   const fileRef = useRef(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState(null); // { ok, text }
+  const [sort, setSort] = useState({ key: null, dir: 'asc' }); // null = server order (newest first)
 
   function downloadTemplate() {
     downloadText('efs-projects-template.csv',
@@ -75,6 +76,53 @@ export default function ProjectsList() {
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  // Clickable, sortable columns. `num` = numeric sort (defaults to descending first).
+  const COLUMNS = [
+    { label: 'Job Order', key: 'job_order_number' },
+    { label: 'Project Name', key: 'project_name' },
+    { label: 'Category', key: 'category' },
+    { label: 'Qty', key: 'quantity', num: true },
+    { label: 'Total', key: 'total_amount', num: true },
+    { label: 'Target Date', key: 'target_date' },
+    { label: 'Status', key: 'status' },
+    { label: 'Priority', key: 'priority' },
+    { label: 'Days Left', key: 'days' },
+  ];
+  const STAGE_ORDER = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
+  const PRIORITY_ORDER = { urgent: 0, normal: 1, low: 2 };
+
+  function toggleSort(col) {
+    setSort((s) => s.key === col.key
+      ? { key: col.key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      : { key: col.key, dir: col.num ? 'desc' : 'asc' });
+  }
+
+  const sortedProjects = useMemo(() => {
+    if (!sort.key) return projects;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const valOf = (p) => {
+      switch (sort.key) {
+        case 'job_order_number': return (p.job_order_number || '').toLowerCase();
+        case 'project_name': return (p.project_name || '').toLowerCase();
+        case 'category': return catLabel(p.category).toLowerCase();
+        case 'quantity': return Number(p.quantity) || 0;
+        case 'total_amount': return Number(p.total_amount) || 0;
+        case 'target_date':
+        case 'days': return p.target_date ? new Date(p.target_date).getTime() : Infinity;
+        case 'status': return STAGE_ORDER[p.status] ?? 99;
+        case 'priority': return PRIORITY_ORDER[p.priority] ?? 1;
+        default: return 0;
+      }
+    };
+    return [...projects].sort((a, b) => {
+      const av = valOf(a), bv = valOf(b);
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return 0;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, sort, catLabel]);
 
   return (
     <div>
@@ -142,21 +190,35 @@ export default function ProjectsList() {
             <table className="w-full text-sm">
               <thead className="bg-navy text-white text-left">
                 <tr>
-                  {['Job Order', 'Project Name', 'Category', 'Qty', 'Target Date', 'Status', 'Priority', 'Days Left'].map((h) => (
-                    <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
-                  ))}
+                  {COLUMNS.map((c) => {
+                    const active = sort.key === c.key;
+                    return (
+                      <th
+                        key={c.key}
+                        onClick={() => toggleSort(c)}
+                        title="Click to sort"
+                        className="px-4 py-3 font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-white/10"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {c.label}
+                          <span className={active ? 'text-gold' : 'text-white/30'}>{active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {projects.length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-gray-400 py-10">No projects match your filters.</td></tr>
+                {sortedProjects.length === 0 && (
+                  <tr><td colSpan={COLUMNS.length} className="text-center text-gray-400 py-10">No projects match your filters.</td></tr>
                 )}
-                {projects.map((p) => (
+                {sortedProjects.map((p) => (
                   <tr key={p.id} className="hover:bg-cloud cursor-pointer" onClick={() => navigate(`/projects/${p.id}`)}>
                     <td className="px-4 py-3 font-bold text-navy whitespace-nowrap">{p.job_order_number}</td>
                     <td className="px-4 py-3">{p.project_name || <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3"><CategoryBadge category={p.category} /></td>
                     <td className="px-4 py-3">{p.quantity}</td>
+                    <td className="px-4 py-3 whitespace-nowrap font-medium text-navy">{peso(p.total_amount)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmtDate(p.target_date)}</td>
                     <td className="px-4 py-3"><StageBadge status={p.status} /></td>
                     <td className="px-4 py-3"><PriorityBadge priority={p.priority} /></td>
