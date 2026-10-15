@@ -22,6 +22,7 @@ export default function ProjectForm({ onClose, onSaved, project }) {
     customer_id: String(project?.customer_id || ''),
     category: project?.category || 'sportswear',
     target_date: project?.target_date || '',
+    order_date: project?.created_at ? String(project.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
     priority: project?.priority || 'normal',
     design_notes: project?.design_notes || '',
     remarks: project?.remarks || '',
@@ -204,9 +205,15 @@ export default function ProjectForm({ onClose, onSaved, project }) {
           </div>
         </div>
 
-        <Field label="Target Date" required>
-          <Input type="date" value={form.target_date} onChange={(e) => set('target_date', e.target.value)} />
-        </Field>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Order Date">
+            <Input type="date" value={form.order_date} onChange={(e) => set('order_date', e.target.value)} />
+            <p className="text-[11px] text-gray-400 mt-1">When the order was placed — set this for back-dated/old projects so it reports in the right month.</p>
+          </Field>
+          <Field label="Target Date" required>
+            <Input type="date" value={form.target_date} onChange={(e) => set('target_date', e.target.value)} />
+          </Field>
+        </div>
 
         <Field label="Project Details (Sizes / Design Notes)" required>
           <Textarea rows={3} value={form.design_notes} onChange={(e) => set('design_notes', e.target.value)} placeholder="Sizes & breakdown, colors, placement of logos…" />

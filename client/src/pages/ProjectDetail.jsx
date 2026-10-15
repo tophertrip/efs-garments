@@ -194,7 +194,7 @@ export default function ProjectDetail() {
               <Detail label="Target Date"><span className="block">{fmtDate(project.target_date)}</span><DaysLeft targetDate={project.target_date} className="text-xs" /></Detail>
               <Detail label="Unit Price">{peso(project.unit_price)}</Detail>
               <Detail label="Total Amount"><span className="font-bold text-navy">{peso(project.total_amount)}</span></Detail>
-              <Detail label="Created">{fmtDate(project.created_at)}</Detail>
+              <Detail label="Order Date">{fmtDate(project.created_at)}</Detail>
             </dl>
             {project.items?.length > 1 && (
               <div className="mt-4">

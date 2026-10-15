@@ -330,7 +330,7 @@ async function saveProjectItems(projectId, items) {
 
 app.post('/api/projects', auth, wrap(async (req, res) => {
   const {
-    project_name, customer_id, category, target_date, design_notes, remarks, design_file_url, priority,
+    project_name, customer_id, category, target_date, design_notes, remarks, design_file_url, priority, order_date,
   } = req.body;
 
   const { items, totalQty, totalAmount, first } = normalizeItems(req.body);
@@ -339,9 +339,10 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
   }
   if (!items.length) return res.status(400).json({ error: 'At least one product with a quantity is required' });
 
-  // Generate next job order number: EFS-YYYY-NNN
-  const year = new Date().getFullYear();
-  const prefix = `EFS-${year}-`;
+  // Order date (created_at) — defaults to now, but can be set for back-dated entries.
+  const createdAt = order_date ? new Date(order_date) : new Date();
+  // Job order number keyed to the order-date year: EFS-YYYY-NNN
+  const prefix = `EFS-${createdAt.getFullYear()}-`;
   const last = await get(
     'SELECT job_order_number FROM projects WHERE job_order_number LIKE ? ORDER BY job_order_number DESC LIMIT 1',
     [`${prefix}%`]
@@ -353,13 +354,13 @@ app.post('/api/projects', auth, wrap(async (req, res) => {
   const inserted = await run(`
     INSERT INTO projects
       (job_order_number, project_name, customer_id, category, description, quantity, unit_price,
-       total_amount, target_date, design_notes, remarks, design_file_url, priority, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry')
+       total_amount, target_date, design_notes, remarks, design_file_url, priority, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry', ?)
     RETURNING id
   `, [
     job_order_number, project_name || null, customer_id, category, first.description, totalQty,
     first.unit_price || null, totalAmount, target_date, design_notes || null,
-    remarks || null, design_file_url || null, priority || 'normal',
+    remarks || null, design_file_url || null, priority || 'normal', createdAt,
   ]);
   const newId = inserted.rows[0].id;
   await saveProjectItems(newId, items);
@@ -451,16 +452,19 @@ app.put('/api/projects/:id', auth, wrap(async (req, res) => {
   }
   if (items === null) merged.total_amount = (Number(merged.unit_price) || 0) * (Number(merged.quantity) || 0);
 
+  // Allow correcting the order date (created_at) for back-dated entries.
+  const createdAt = (req.body.order_date != null && String(req.body.order_date).trim() !== '') ? new Date(req.body.order_date) : new Date(existing.created_at);
+
   await run(`
     UPDATE projects SET
       project_name=?, customer_id=?, category=?, description=?, quantity=?, unit_price=?,
       total_amount=?, target_date=?, design_notes=?, remarks=?, design_file_url=?,
-      priority=?, updated_at=now()
+      priority=?, created_at=?, updated_at=now()
     WHERE id=?
   `, [
     merged.project_name || null, merged.customer_id, merged.category, merged.description, merged.quantity,
     merged.unit_price, merged.total_amount, merged.target_date, merged.design_notes,
-    merged.remarks, merged.design_file_url, merged.priority, req.params.id,
+    merged.remarks, merged.design_file_url, merged.priority, createdAt, req.params.id,
   ]);
   if (items) await saveProjectItems(req.params.id, items);
   res.json(await getProjectFull(req.params.id));
