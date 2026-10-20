@@ -83,6 +83,7 @@ const AUDIT_ROUTES = [
   [/^\/api\/tasks\/\d+\/done$/, 'reminder status'],
   [/^\/api\/tasks(\/\d+)?$/, 'reminder'],
   [/^\/api\/permissions$/, 'role permissions'],
+  [/^\/api\/price-visibility$/, 'price visibility'],
   [/^\/api\/admin\/users(\/\d+)?$/, 'user account'],
 ];
 const AUDIT_BODY_FIELDS = ['job_order_number', 'project_name', 'name', 'title', 'category', 'amount', 'total', 'method', 'to_status', 'status', 'staff_name', 'vendor', 'reference'];
@@ -142,6 +143,20 @@ async function getPermissions() {
     if (row) stored = JSON.parse(row.value);
   } catch { /* table may not exist yet — fall back to defaults */ }
   return { ...DEFAULT_TAB_PERMS, ...stored };
+}
+
+// Roles allowed to see money amounts (₱ prices). Admin always can.
+const DEFAULT_PRICE_ROLES = ['admin', 'finance'];
+
+async function getPriceRoles() {
+  try {
+    const row = await get("SELECT value FROM app_settings WHERE key = 'price_roles'");
+    if (row) {
+      const arr = JSON.parse(row.value);
+      if (Array.isArray(arr)) return Array.from(new Set(['admin', ...arr.filter((r) => typeof r === 'string')]));
+    }
+  } catch { /* fall back to defaults */ }
+  return DEFAULT_PRICE_ROLES;
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +728,18 @@ app.put('/api/permissions', auth, admin, wrap(async (req, res) => {
     [JSON.stringify(map)]
   );
   res.json(await getPermissions());
+}));
+
+// Per-role price/amount visibility — public reference data (list of roles that see ₱).
+app.get('/api/price-visibility', wrap(async (req, res) => {
+  res.json(await getPriceRoles());
+}));
+
+app.put('/api/price-visibility', auth, admin, wrap(async (req, res) => {
+  const raw = Array.isArray(req.body) ? req.body : (Array.isArray(req.body?.roles) ? req.body.roles : []);
+  const clean = Array.from(new Set(['admin', ...raw.filter((r) => typeof r === 'string')]));
+  await writeSetting('price_roles', JSON.stringify(clean));
+  res.json(await getPriceRoles());
 }));
 
 // ---------------------------------------------------------------------------

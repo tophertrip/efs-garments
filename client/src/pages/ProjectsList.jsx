@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { STAGES, fmtDate, peso } from '../constants';
+import { STAGES, fmtDate } from '../constants';
 import { parseCsv, downloadText } from '../csv';
 import { useCategories } from '../categories';
 import { useAuth } from '../auth';
-import { Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Input, Select } from '../components';
+import { usePermissions } from '../permissions';
+import { Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Input, Select, Money } from '../components';
 import ProjectForm from '../ProjectForm';
 import CategoryManager from '../CategoryManager';
 
 export default function ProjectsList() {
   const { categories, label: catLabel, reload: reloadCategories } = useCategories();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const { canSeePrice } = usePermissions();
+  const showPrice = canSeePrice(user?.role);
   const [showCats, setShowCats] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,10 +63,11 @@ export default function ProjectsList() {
   function set(k, v) { setFilters((f) => ({ ...f, [k]: v })); }
 
   function exportCsv() {
+    // Roles without price permission get the amount columns blanked out.
     const headers = ['Job Order', 'Project Name', 'Customer', 'Category', 'Quantity', 'Unit Price', 'Total', 'Target Date', 'Status', 'Priority'];
     const rows = projects.map((p) => [
       p.job_order_number, p.project_name || '', p.customer_name, catLabel(p.category),
-      p.quantity, p.unit_price ?? '', p.total_amount ?? '', p.target_date, p.status, p.priority,
+      p.quantity, showPrice ? (p.unit_price ?? '') : '', showPrice ? (p.total_amount ?? '') : '', p.target_date, p.status, p.priority,
     ]);
     const csv = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
@@ -218,7 +222,7 @@ export default function ProjectsList() {
                     <td className="px-4 py-3">{p.project_name || <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3"><CategoryBadge category={p.category} /></td>
                     <td className="px-4 py-3">{p.quantity}</td>
-                    <td className="px-4 py-3 whitespace-nowrap font-medium text-navy">{peso(p.total_amount)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap font-medium text-navy"><Money value={p.total_amount} /></td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmtDate(p.target_date)}</td>
                     <td className="px-4 py-3"><StageBadge status={p.status} /></td>
                     <td className="px-4 py-3"><PriorityBadge priority={p.priority} /></td>

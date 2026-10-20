@@ -66,7 +66,7 @@ function UserModal({ user, onClose, onSaved }) {
 
 export default function UserManagement() {
   const { user: me } = useAuth();
-  const { perms, reload: reloadPerms } = usePermissions();
+  const { perms, priceRoles, reload: reloadPerms } = usePermissions();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -77,6 +77,7 @@ export default function UserManagement() {
   const [revealPins, setRevealPins] = useState(false);
 
   const [draft, setDraft] = useState({});
+  const [priceDraft, setPriceDraft] = useState([]); // roles allowed to see ₱ amounts
   const [savingPerms, setSavingPerms] = useState(false);
   const [permsSaved, setPermsSaved] = useState(false);
 
@@ -87,6 +88,7 @@ export default function UserManagement() {
   }
   useEffect(() => { loadUsers(); }, []);
   useEffect(() => { setDraft(JSON.parse(JSON.stringify(perms || {}))); }, [perms]);
+  useEffect(() => { setPriceDraft(Array.isArray(priceRoles) ? [...priceRoles] : []); }, [priceRoles]);
 
   const [activity, setActivity] = useState([]);
   const [actSearch, setActSearch] = useState('');
@@ -105,10 +107,16 @@ export default function UserManagement() {
     });
   }
 
+  function togglePrice(role) {
+    setPermsSaved(false);
+    setPriceDraft((list) => (list.includes(role) ? list.filter((r) => r !== role) : [...list, role]));
+  }
+
   async function savePerms() {
     setSavingPerms(true);
     try {
       await api.put('/permissions', draft);
+      await api.put('/price-visibility', { roles: priceDraft });
       await reloadPerms();
       setPermsSaved(true);
     } finally { setSavingPerms(false); }
@@ -240,7 +248,7 @@ export default function UserManagement() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-wrap gap-2">
           <div>
             <h2 className="font-bold text-navy">Tab Visibility by Role</h2>
-            <p className="text-xs text-gray-500">Check which tabs each role can see. Admin always sees everything.</p>
+            <p className="text-xs text-gray-500">Check which tabs each role can see, and whether they can see <strong>₱ price amounts</strong>. Admin always sees everything.</p>
           </div>
           <div className="flex items-center gap-3">
             {permsSaved && <span className="text-xs text-green-600 font-medium">✓ Saved</span>}
@@ -255,6 +263,7 @@ export default function UserManagement() {
                 {TABS.map((t) => (
                   <th key={t.key} className="px-3 py-3 font-semibold text-navy text-center whitespace-nowrap">{t.icon} {t.label}</th>
                 ))}
+                <th className="px-3 py-3 font-semibold text-navy text-center whitespace-nowrap border-l-2 border-gold/60 bg-gold/10">💰 Prices</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -275,6 +284,16 @@ export default function UserManagement() {
                         />
                       </td>
                     ))}
+                    <td className="px-3 py-3 text-center border-l-2 border-gold/60 bg-gold/5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-gold disabled:opacity-40"
+                        checked={isAdminRole || priceDraft.includes(role)}
+                        disabled={isAdminRole}
+                        onChange={() => togglePrice(role)}
+                        title="Can see ₱ price amounts"
+                      />
+                    </td>
                   </tr>
                 );
               })}

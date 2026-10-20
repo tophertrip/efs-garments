@@ -3,10 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import {
-  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, prevStageKey, peso, fmtDate, fmtDateTime, PAYMENT_METHOD_LABEL,
+  STAGES, STAGE_MAP, STAGE_KEYS, nextStageKey, prevStageKey, fmtDate, fmtDateTime, PAYMENT_METHOD_LABEL,
 } from '../constants';
 import {
-  Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Modal, Field, Input, Textarea, Select, ConfirmDialog,
+  Card, Spinner, Button, StageBadge, CategoryBadge, PriorityBadge, DaysLeft, Modal, Field, Input, Textarea, Select, ConfirmDialog, Money,
 } from '../components';
 import ProjectForm from '../ProjectForm';
 import PaymentModal from '../PaymentModal';
@@ -192,8 +192,8 @@ export default function ProjectDetail() {
               <Detail label="Category"><CategoryBadge category={project.category} /></Detail>
               <Detail label="Quantity">{project.quantity}</Detail>
               <Detail label="Target Date"><span className="block">{fmtDate(project.target_date)}</span><DaysLeft targetDate={project.target_date} className="text-xs" /></Detail>
-              <Detail label="Unit Price">{peso(project.unit_price)}</Detail>
-              <Detail label="Total Amount"><span className="font-bold text-navy">{peso(project.total_amount)}</span></Detail>
+              <Detail label="Unit Price"><Money value={project.unit_price} /></Detail>
+              <Detail label="Total Amount"><Money value={project.total_amount} className="font-bold text-navy" /></Detail>
               <Detail label="Order Date">{fmtDate(project.created_at)}</Detail>
             </dl>
             {project.items?.length > 1 && (
@@ -206,10 +206,10 @@ export default function ProjectDetail() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {project.items.map((it, i) => (
-                        <tr key={i}><td className="px-3 py-2">{it.description || '—'}</td><td className="px-3 py-2 text-right">{it.quantity}</td><td className="px-3 py-2 text-right">{peso(it.unit_price)}</td><td className="px-3 py-2 text-right font-semibold text-navy">{peso(it.line_total)}</td></tr>
+                        <tr key={i}><td className="px-3 py-2">{it.description || '—'}</td><td className="px-3 py-2 text-right">{it.quantity}</td><td className="px-3 py-2 text-right"><Money value={it.unit_price} /></td><td className="px-3 py-2 text-right font-semibold text-navy"><Money value={it.line_total} /></td></tr>
                       ))}
                     </tbody>
-                    <tfoot><tr className="border-t-2 border-gray-200 font-bold text-navy"><td className="px-3 py-2">Total</td><td className="px-3 py-2 text-right">{project.quantity}</td><td /><td className="px-3 py-2 text-right">{peso(project.total_amount)}</td></tr></tfoot>
+                    <tfoot><tr className="border-t-2 border-gray-200 font-bold text-navy"><td className="px-3 py-2">Total</td><td className="px-3 py-2 text-right">{project.quantity}</td><td /><td className="px-3 py-2 text-right"><Money value={project.total_amount} /></td></tr></tfoot>
                   </table>
                 </div>
               </div>
@@ -301,15 +301,15 @@ export default function ProjectDetail() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div className="rounded-xl p-4 bg-cloud">
             <div className="text-xs text-gray-400 uppercase tracking-wide">Total Amount Due</div>
-            <div className="text-xl font-bold text-navy mt-1">{peso(project.total_amount)}</div>
+            <div className="text-xl font-bold text-navy mt-1"><Money value={project.total_amount} /></div>
           </div>
           <div className="rounded-xl p-4 bg-emerald-50 border border-emerald-200">
             <div className="text-xs text-emerald-700 uppercase tracking-wide">Total Paid</div>
-            <div className="text-xl font-bold text-emerald-800 mt-1">{peso(project.total_paid)}</div>
+            <div className="text-xl font-bold text-emerald-800 mt-1"><Money value={project.total_paid} /></div>
           </div>
           <div className={`rounded-xl p-4 ${project.balance > 0 ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
             <div className={`text-xs uppercase tracking-wide ${project.balance > 0 ? 'text-red-600' : 'text-gray-400'}`}>Remaining Balance</div>
-            <div className={`text-xl font-bold mt-1 ${project.balance > 0 ? 'text-red-600' : 'text-gray-500'}`}>{peso(project.balance)}</div>
+            <div className={`text-xl font-bold mt-1 ${project.balance > 0 ? 'text-red-600' : 'text-gray-500'}`}><Money value={project.balance} /></div>
           </div>
         </div>
         {project.payments.length === 0 ? (
@@ -319,7 +319,7 @@ export default function ProjectDetail() {
             {project.payments.map((pay) => (
               <li key={pay.id} className="flex items-center justify-between py-2 text-sm">
                 <div>
-                  <span className="font-semibold text-emerald-700">{peso(pay.amount)}</span>
+                  <Money value={pay.amount} className="font-semibold text-emerald-700" />
                   <span className="text-gray-500"> · {PAYMENT_METHOD_LABEL[pay.method] || pay.method}</span>
                   {pay.reference && <span className="text-gray-400"> · {pay.reference}</span>}
                   {pay.file_url && <a href={pay.file_url} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline ml-1">· 📎 file</a>}

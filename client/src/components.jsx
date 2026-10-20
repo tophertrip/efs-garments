@@ -1,5 +1,17 @@
-import { STAGE_MAP, daysLeftLabel } from './constants';
+import { STAGE_MAP, daysLeftLabel, peso } from './constants';
 import { useCategories } from './categories';
+import { usePermissions } from './permissions';
+import { useAuth } from './auth';
+
+// Renders a ₱ amount, but masks it (₱•••) for roles not allowed to see prices.
+export function Money({ value, className = '' }) {
+  const { user } = useAuth();
+  const { canSeePrice } = usePermissions();
+  if (!canSeePrice(user?.role)) {
+    return <span className={`text-gray-400 ${className}`} title="Amounts are hidden for your role">₱•••</span>;
+  }
+  return <span className={className}>{peso(value)}</span>;
+}
 
 export function StageBadge({ status }) {
   const s = STAGE_MAP[status];
