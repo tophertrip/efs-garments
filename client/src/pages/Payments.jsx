@@ -1,10 +1,75 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { peso, fmtDate, PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '../constants';
 import { Card, Spinner, Button, Input, Select, Empty, ConfirmDialog } from '../components';
 import { useAuth } from '../auth';
 import PaymentModal from '../PaymentModal';
+
+const custName = (r) => r.customer_company || r.customer_name || '—';
+
+// --- Client-side column sorting -------------------------------------------
+const PAY_STATUS_ORDER = { unpaid: 0, partial: 1, paid: 2 };
+
+// Per-project balances table — label → sort value accessor.
+const PROJECT_COLS = [
+  { label: 'Job Order #', key: 'job_order_number', val: (p) => (p.job_order_number || '').toLowerCase() },
+  { label: 'Customer', key: 'customer', val: (p) => custName(p).toLowerCase() },
+  { label: 'Total Amount', key: 'total_amount', num: true, val: (p) => Number(p.total_amount) || 0 },
+  { label: 'Total Paid', key: 'total_paid', num: true, val: (p) => Number(p.total_paid) || 0 },
+  { label: 'Balance', key: 'balance', num: true, val: (p) => Number(p.balance) || 0 },
+  { label: 'Status', key: 'status', val: (p) => PAY_STATUS_ORDER[p.payment_status] ?? 0 },
+  { label: '', key: null },
+];
+
+// Transaction history table.
+const TXN_COLS = [
+  { label: 'Date', key: 'paid_on', val: (t) => t.paid_on || '' },
+  { label: 'Job Order', key: 'job_order_number', val: (t) => (t.job_order_number || '').toLowerCase() },
+  { label: 'Customer', key: 'customer', val: (t) => custName(t).toLowerCase() },
+  { label: 'Method', key: 'method', val: (t) => (PAYMENT_METHOD_LABEL[t.method] || t.method || '').toLowerCase() },
+  { label: 'Reference #', key: 'reference', val: (t) => (t.reference || '').toLowerCase() },
+  { label: 'File', key: 'file', val: (t) => (t.file_url ? 1 : 0) },
+  { label: 'Amount', key: 'amount', num: true, val: (t) => Number(t.amount) || 0 },
+  { label: 'Recorded By', key: 'recorded_by', val: (t) => (t.recorded_by_name || '').toLowerCase() },
+];
+
+function useSort(rows, cols) {
+  const [sort, setSort] = useState({ key: null, dir: 'asc' });
+  const sorted = useMemo(() => {
+    const col = cols.find((c) => c.key === sort.key);
+    if (!sort.key || !col) return rows;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = col.val(a), bv = col.val(b);
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return 0;
+    });
+  }, [rows, sort, cols]);
+  const toggle = (col) => {
+    if (!col.key) return;
+    setSort((s) => (s.key === col.key
+      ? { key: col.key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      : { key: col.key, dir: col.num ? 'desc' : 'asc' }));
+  };
+  return { sorted, sort, toggle };
+}
+
+// A clickable, sortable header cell for the navy table headers.
+function SortTh({ col, sort, onSort }) {
+  if (!col.key) return <th className="px-4 py-3 font-semibold whitespace-nowrap" />;
+  const active = sort.key === col.key;
+  return (
+    <th onClick={() => onSort(col)} title="Click to sort"
+        className="px-4 py-3 font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-white/10">
+      <span className="inline-flex items-center gap-1">
+        {col.label}
+        <span className={active ? 'text-gold' : 'text-white/30'}>{active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </span>
+    </th>
+  );
+}
 
 const STATUS_BADGE = {
   unpaid: { label: '🔴 Unpaid', cls: 'bg-red-100 text-red-700' },
@@ -30,8 +95,6 @@ function Stat({ label, value, tone = 'light' }) {
     </div>
   );
 }
-
-const custName = (r) => r.customer_company || r.customer_name || '—';
 
 export default function Payments() {
   const { user } = useAuth();
@@ -69,6 +132,9 @@ export default function Payments() {
   function setF(k, v) { setFilters((f) => ({ ...f, [k]: v })); }
 
   const txnTotal = txns.reduce((a, t) => a + (t.amount || 0), 0);
+
+  const projSort = useSort(projects, PROJECT_COLS);
+  const txnSort = useSort(txns, TXN_COLS);
 
   function exportCsv() {
     const headers = ['Date', 'Job Order', 'Customer', 'Method', 'Reference', 'File Link', 'Amount', 'Recorded By'];
@@ -112,14 +178,14 @@ export default function Payments() {
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
-                {['Job Order #', 'Customer', 'Total Amount', 'Total Paid', 'Balance', 'Status', ''].map((h) => (
-                  <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
+                {PROJECT_COLS.map((c, i) => (
+                  <SortTh key={c.key || `col${i}`} col={c} sort={projSort.sort} onSort={projSort.toggle} />
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {projects.length === 0 && <tr><td colSpan={7} className="text-center text-gray-400 py-10">No confirmed projects yet.</td></tr>}
-              {projects.map((p) => (
+              {projSort.sorted.map((p) => (
                 <tr key={p.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 font-bold text-navy whitespace-nowrap">
                     <Link to={`/projects/${p.id}`} className="hover:underline">{p.job_order_number}</Link>
@@ -176,15 +242,15 @@ export default function Payments() {
           <table className="w-full text-sm">
             <thead className="bg-navy text-white text-left">
               <tr>
-                {['Date', 'Job Order', 'Customer', 'Method', 'Reference #', 'File', 'Amount', 'Recorded By'].map((h) => (
-                  <th key={h} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
+                {TXN_COLS.map((c) => (
+                  <SortTh key={c.key} col={c} sort={txnSort.sort} onSort={txnSort.toggle} />
                 ))}
                 {canManage && <th className="px-4 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {txns.length === 0 && <tr><td colSpan={canManage ? 9 : 8} className="text-center text-gray-400 py-10">No payments match your filters.</td></tr>}
-              {txns.map((t) => (
+              {txnSort.sorted.map((t) => (
                 <tr key={t.id} className="hover:bg-cloud">
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(t.paid_on)}</td>
                   <td className="px-4 py-3 font-semibold text-navy whitespace-nowrap">
