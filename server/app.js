@@ -911,11 +911,12 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
   const yearEnd = `${year}-12-31`;
 
   // One pass: per-month sales (revenue), project count, and pieces (units).
+  // Sales (revenue) only counts Confirmed+ orders; project/piece counts show the full pipeline.
   const rows = await query(`
     SELECT EXTRACT(MONTH FROM created_at::date)::int AS m,
            COUNT(*)::int AS projects,
            COALESCE(SUM(quantity), 0)::int AS pieces,
-           COALESCE(SUM(total_amount), 0)::float AS sales
+           COALESCE(SUM(total_amount) FILTER (WHERE status NOT IN ('inquiry','quotation')), 0)::float AS sales
     FROM projects
     WHERE created_at::date >= ?::date AND created_at::date <= ?::date
     GROUP BY m
@@ -939,11 +940,11 @@ app.get('/api/owner-dashboard', auth, admin, wrap(async (req, res) => {
   );
   const outstanding = confirmedSales - totalCollected;
 
-  // Sales (revenue) by product category — this year.
+  // Sales (revenue) by product category — this year. Revenue counts Confirmed+ orders only.
   const byCategory = await query(`
     SELECT category,
            COUNT(*)::int AS projects,
-           COALESCE(SUM(total_amount),0)::float AS sales,
+           COALESCE(SUM(total_amount) FILTER (WHERE status NOT IN ('inquiry','quotation')),0)::float AS sales,
            COALESCE(SUM(quantity),0)::int AS pieces
     FROM projects
     WHERE created_at::date >= ?::date AND created_at::date <= ?::date
@@ -995,6 +996,8 @@ app.get('/api/reports', auth, wrap(async (req, res) => {
 
   const where = [];
   const params = [];
+  // Financials only reflect Confirmed+ orders — new Inquiry/Quotation projects are excluded.
+  where.push(`p.status NOT IN ('inquiry','quotation')`);
   if (from) { where.push(`${dateCol}::date >= ?::date`); params.push(from); }
   if (to) { where.push(`${dateCol}::date <= ?::date`); params.push(to); }
   if (status === 'delivered') where.push(`p.status = 'delivered'`);
@@ -1137,8 +1140,11 @@ app.post('/api/payments', auth, wrap(async (req, res) => {
   const amt = Number(amount);
   if (!project_id) return res.status(400).json({ error: 'Project is required' });
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
-  const project = await get('SELECT id FROM projects WHERE id = ?', [project_id]);
+  const project = await get('SELECT id, status FROM projects WHERE id = ?', [project_id]);
   if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (['inquiry', 'quotation'].includes(project.status)) {
+    return res.status(400).json({ error: 'This order must be Confirmed before payments can be recorded.' });
+  }
   const today = new Date().toISOString().slice(0, 10);
   const inserted = await run(`
     INSERT INTO payments (project_id, amount, method, reference, file_url, paid_on, recorded_by)

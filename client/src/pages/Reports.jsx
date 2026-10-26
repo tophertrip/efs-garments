@@ -104,7 +104,7 @@ export default function Reports() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-extrabold text-navy">Reports</h1>
-          <p className="text-gray-500 text-sm">Sales & production analytics across job orders</p>
+          <p className="text-gray-500 text-sm">Sales & production analytics — Confirmed orders only (excludes Inquiry & Quotation)</p>
         </div>
         <Button variant="outline" onClick={exportCsv} disabled={!rows.length}>⬇ Export CSV</Button>
       </div>

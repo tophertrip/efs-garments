@@ -179,6 +179,12 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      {['inquiry', 'quotation'].includes(project.status) && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 print:hidden">
+          <span className="font-semibold">Not Confirmed yet.</span> This order won't appear in Reports, Payments or Dashboard sales until you advance it to <span className="font-semibold">✅ Confirmed</span>. Payments can be recorded once it's Confirmed.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: details + tasks */}
         <div className="lg:col-span-2 space-y-6">
@@ -294,9 +300,11 @@ export default function ProjectDetail() {
       <Card className="p-5 mt-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="font-bold text-navy">💳 Payments</h2>
-          {project.balance > 0 && (
-            <Button variant="gold" onClick={() => setShowPayment(true)} className="print:hidden">+ Add Payment</Button>
-          )}
+          {['inquiry', 'quotation'].includes(project.status)
+            ? <span className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 print:hidden">🔒 Confirm this order to record payments</span>
+            : project.balance > 0 && (
+              <Button variant="gold" onClick={() => setShowPayment(true)} className="print:hidden">+ Add Payment</Button>
+            )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div className="rounded-xl p-4 bg-cloud">
