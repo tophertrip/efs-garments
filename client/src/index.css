@@ -23,4 +23,11 @@ body {
   body { background: #fff !important; }
   /* Let the timeline / details flow onto the page nicely */
   .lg\:col-span-2 { grid-column: auto !important; }
+  /* Keep card/KPI backgrounds and chart colors in the printout */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* Keep each card and its text together — don't split a card across pages */
+  .rounded-xl { break-inside: avoid; }
+  tr, thead, tfoot { break-inside: avoid; }
+  h1, h2 { break-after: avoid; }
+  @page { margin: 14mm; }
 }

@@ -43,8 +43,8 @@ function Kpi({ label, value, tone = 'navy' }) {
     light: 'bg-white border border-gray-200 text-navy',
   };
   return (
-    <div className={`rounded-xl p-5 ${tones[tone]}`}>
-      <div className="text-2xl md:text-3xl font-extrabold">{value}</div>
+    <div className={`rounded-xl p-5 min-w-0 ${tones[tone]}`}>
+      <div className="text-2xl md:text-3xl font-extrabold break-words leading-tight">{value}</div>
       <div className="text-sm font-medium opacity-90 mt-1">{label}</div>
     </div>
   );
@@ -105,12 +105,22 @@ export default function Reports() {
         <div>
           <h1 className="text-2xl font-extrabold text-navy">Reports</h1>
           <p className="text-gray-500 text-sm">Sales & production analytics — Confirmed orders only (excludes Inquiry & Quotation)</p>
+          {/* Shown only on the printout so the report is self-describing */}
+          <p className="hidden print:block text-xs text-gray-500 mt-1">
+            {groupTitle} · {opts.dateField === 'target' ? 'Target date' : 'Order date'}
+            {(opts.from || opts.to) ? ` · ${opts.from || '…'} → ${opts.to || '…'}` : ''}
+            {opts.status !== 'all' ? ` · ${opts.status.replace('_', ' ')} only` : ''}
+            {' · '}Generated {new Date().toLocaleString()}
+          </p>
         </div>
-        <Button variant="outline" onClick={exportCsv} disabled={!rows.length}>⬇ Export CSV</Button>
+        <div className="flex gap-2 print:hidden">
+          <Button variant="outline" onClick={() => window.print()}>🖨️ Print / PDF</Button>
+          <Button variant="outline" onClick={exportCsv} disabled={!rows.length}>⬇ Export CSV</Button>
+        </div>
       </div>
 
       {/* Controls */}
-      <Card className="p-4 mb-6">
+      <Card className="p-4 mb-6 print:hidden">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <label className="block">
             <span className="block text-xs font-semibold text-gray-500 mb-1">Group by</span>
@@ -157,17 +167,17 @@ export default function Reports() {
         <Card className="p-5 mb-6">
           <h2 className="font-bold text-navy mb-4">💰 Finance Summary <span className="text-xs font-normal text-gray-400">(based on recorded payments)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-xl p-5 bg-navy text-white">
+            <div className="rounded-xl p-5 min-w-0 bg-navy text-white">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total Sales (confirmed)</div>
-              <div className="text-2xl md:text-3xl font-extrabold mt-1">{peso(finance.totalSales)}</div>
+              <div className="text-2xl md:text-3xl font-extrabold break-words leading-tight mt-1">{peso(finance.totalSales)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-emerald-50 border border-emerald-200">
+            <div className="rounded-xl p-5 min-w-0 bg-emerald-50 border border-emerald-200">
               <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales — Paid (Collected)</div>
-              <div className="text-2xl md:text-3xl font-extrabold text-emerald-800 mt-1">{peso(finance.totalCollected)}</div>
+              <div className="text-2xl md:text-3xl font-extrabold break-words leading-tight text-emerald-800 mt-1">{peso(finance.totalCollected)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-yellow-50 border border-yellow-200">
+            <div className="rounded-xl p-5 min-w-0 bg-yellow-50 border border-yellow-200">
               <div className="text-xs font-semibold text-yellow-700 uppercase tracking-wide">For Payment — Outstanding</div>
-              <div className="text-2xl md:text-3xl font-extrabold text-yellow-800 mt-1">{peso(finance.totalOutstanding)}</div>
+              <div className="text-2xl md:text-3xl font-extrabold break-words leading-tight text-yellow-800 mt-1">{peso(finance.totalOutstanding)}</div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
@@ -184,21 +194,21 @@ export default function Reports() {
         <Card className="p-5 mb-6">
           <h2 className="font-bold text-navy mb-4">🛒 Point of Sale <span className="text-xs font-normal text-gray-400">(store sales synced from POS)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="rounded-xl p-5 bg-navy text-white">
+            <div className="rounded-xl p-5 min-w-0 bg-navy text-white">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total POS Sales</div>
-              <div className="text-2xl font-extrabold mt-1">{peso(posSales.total)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight mt-1">{peso(posSales.total)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-emerald-50 border border-emerald-200">
+            <div className="rounded-xl p-5 min-w-0 bg-emerald-50 border border-emerald-200">
               <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sales Today</div>
-              <div className="text-2xl font-extrabold text-emerald-800 mt-1">{peso(posSales.today)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-emerald-800 mt-1">{peso(posSales.today)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-amber-50 border border-amber-200">
+            <div className="rounded-xl p-5 min-w-0 bg-amber-50 border border-amber-200">
               <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">This Month</div>
-              <div className="text-2xl font-extrabold text-amber-800 mt-1">{peso(posSales.thisMonth)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-amber-800 mt-1">{peso(posSales.thisMonth)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+            <div className="rounded-xl p-5 min-w-0 bg-cloud border border-gray-200">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions</div>
-              <div className="text-2xl font-extrabold text-navy mt-1">{posSales.count}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-navy mt-1">{posSales.count}</div>
             </div>
           </div>
           {posSales.byStore.length > 0 && (
@@ -216,21 +226,21 @@ export default function Reports() {
         <Card className="p-5 mb-6">
           <h2 className="font-bold text-navy mb-4">🧾 Expenses Summary <span className="text-xs font-normal text-gray-400">(from the Finance module)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="rounded-xl p-5 bg-red-600 text-white">
+            <div className="rounded-xl p-5 min-w-0 bg-red-600 text-white">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-90">Total Expenses</div>
-              <div className="text-2xl font-extrabold mt-1">{peso(expenses.total)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight mt-1">{peso(expenses.total)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-orange-50 border border-orange-200">
+            <div className="rounded-xl p-5 min-w-0 bg-orange-50 border border-orange-200">
               <div className="text-xs font-semibold text-orange-700 uppercase tracking-wide">This Month</div>
-              <div className="text-2xl font-extrabold text-orange-800 mt-1">{peso(expenses.thisMonth)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-orange-800 mt-1">{peso(expenses.thisMonth)}</div>
             </div>
-            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+            <div className="rounded-xl p-5 min-w-0 bg-cloud border border-gray-200">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transactions</div>
-              <div className="text-2xl font-extrabold text-navy mt-1">{expenses.count}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-navy mt-1">{expenses.count}</div>
             </div>
-            <div className="rounded-xl p-5 bg-cloud border border-gray-200">
+            <div className="rounded-xl p-5 min-w-0 bg-cloud border border-gray-200">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg / Expense</div>
-              <div className="text-2xl font-extrabold text-navy mt-1">{peso(expenses.count ? expenses.total / expenses.count : 0)}</div>
+              <div className="text-2xl font-extrabold break-words leading-tight text-navy mt-1">{peso(expenses.count ? expenses.total / expenses.count : 0)}</div>
             </div>
           </div>
           {expenses.byCategory && expenses.byCategory.length > 0 && (
@@ -267,7 +277,7 @@ export default function Reports() {
           <Card className="p-5">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="font-bold text-navy">{groupTitle}</h2>
-              <div className="flex gap-1 bg-cloud rounded-lg p-1">
+              <div className="flex gap-1 bg-cloud rounded-lg p-1 print:hidden">
                 {[['revenue', 'Revenue'], ['orders', 'Orders'], ['units', 'Units']].map(([k, lbl]) => (
                   <button key={k} onClick={() => setMetric(k)}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition ${
