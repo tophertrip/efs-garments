@@ -1062,6 +1062,16 @@ function paymentStatus(total, paid) {
   return 'paid';
 }
 
+// Payment file links must point to Google Drive (drive.google.com / docs.google.com).
+function isGoogleDriveLink(url) {
+  try {
+    const h = new URL(String(url).trim()).hostname.toLowerCase();
+    return h === 'drive.google.com' || h === 'docs.google.com';
+  } catch {
+    return false;
+  }
+}
+
 async function projectBalances() {
   const rows = await query(`
     SELECT p.id, p.job_order_number, p.project_name,
@@ -1145,11 +1155,15 @@ app.post('/api/payments', auth, wrap(async (req, res) => {
   if (['inquiry', 'quotation'].includes(project.status)) {
     return res.status(400).json({ error: 'This order must be Confirmed before payments can be recorded.' });
   }
+  const fileLink = (file_url || '').trim();
+  if (fileLink && !isGoogleDriveLink(fileLink)) {
+    return res.status(400).json({ error: 'The payment file link must be a Google Drive link (drive.google.com or docs.google.com).' });
+  }
   const today = new Date().toISOString().slice(0, 10);
   const inserted = await run(`
     INSERT INTO payments (project_id, amount, method, reference, file_url, paid_on, recorded_by)
     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
-  `, [project_id, amt, method || 'cash', reference || null, (file_url || '').trim() || null, paid_on || today, req.user.id]);
+  `, [project_id, amt, method || 'cash', reference || null, fileLink || null, paid_on || today, req.user.id]);
   res.status(201).json({ id: inserted.rows[0].id });
 }));
 
@@ -1163,6 +1177,9 @@ app.put('/api/payments/:id', auth, wrap(async (req, res) => {
   const amt = amount === undefined ? Number(existing.amount) : Number(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'A positive amount is required' });
   const fileUrl = file_url === undefined ? existing.file_url : (String(file_url || '').trim() || null);
+  if (fileUrl && !isGoogleDriveLink(fileUrl)) {
+    return res.status(400).json({ error: 'The payment file link must be a Google Drive link (drive.google.com or docs.google.com).' });
+  }
   const ref = reference === undefined ? existing.reference : (String(reference || '').trim() || null);
   await run(
     'UPDATE payments SET amount=?, method=?, reference=?, file_url=?, paid_on=? WHERE id=?',

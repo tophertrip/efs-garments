@@ -3,6 +3,16 @@ import { api } from './api';
 import { PAYMENT_METHODS, peso } from './constants';
 import { Modal, Field, Input, Select, Button } from './components';
 
+// The payment file link must point to Google Drive (drive.google.com / docs.google.com).
+function isGoogleDriveLink(url) {
+  try {
+    const h = new URL(url.trim()).hostname.toLowerCase();
+    return h === 'drive.google.com' || h === 'docs.google.com';
+  } catch {
+    return false;
+  }
+}
+
 // Record OR edit a payment against a project. `project` should include id,
 // job_order_number, and (optionally) balance to prefill the amount. Pass
 // `payment` to edit an existing payment instead of creating a new one.
@@ -22,10 +32,13 @@ export default function PaymentModal({ project, payment, onClose, onSaved }) {
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
+  const linkInvalid = form.file_url.trim() !== '' && !isGoogleDriveLink(form.file_url);
+
   async function submit(e) {
     e.preventDefault();
     const amt = Number(form.amount);
     if (!amt || amt <= 0) { setError('Enter a positive amount'); return; }
+    if (linkInvalid) { setError('The payment file link must be a Google Drive link (drive.google.com or docs.google.com).'); return; }
     setBusy(true);
     try {
       if (editing) await api.put(`/payments/${payment.id}`, { ...form, amount: amt });
@@ -60,12 +73,21 @@ export default function PaymentModal({ project, payment, onClose, onSaved }) {
         <Field label="Reference #">
           <Input value={form.reference} onChange={(e) => set('reference', e.target.value)} placeholder="GCash ref, OR #, etc." />
         </Field>
-        <Field label="Payment file link (optional)">
-          <Input type="url" value={form.file_url} onChange={(e) => set('file_url', e.target.value)} placeholder="https://… (receipt / proof of payment)" />
+        <Field label="Payment file link — Google Drive only (optional)">
+          <Input
+            type="url"
+            value={form.file_url}
+            onChange={(e) => set('file_url', e.target.value)}
+            placeholder="https://drive.google.com/… (receipt / proof of payment)"
+            className={linkInvalid ? 'border-red-400 focus:ring-red-300' : ''}
+          />
+          {linkInvalid
+            ? <p className="text-xs text-red-600 mt-1">Please paste a Google Drive link (drive.google.com or docs.google.com).</p>
+            : <p className="text-xs text-gray-400 mt-1">Paste a Google Drive share link to the receipt / proof of payment.</p>}
         </Field>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="gold" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save Changes' : 'Record Payment'}</Button>
+          <Button type="submit" variant="gold" disabled={busy || linkInvalid}>{busy ? 'Saving…' : editing ? 'Save Changes' : 'Record Payment'}</Button>
         </div>
       </form>
     </Modal>
