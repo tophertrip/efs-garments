@@ -83,6 +83,25 @@ function recordLoginFail(ip) {
 }
 const clearLoginFails = (ip) => loginAttempts.delete(ip);
 
+// Read-only backup access for an automated backup job. A request carrying a
+// valid "x-backup-token" header may call the backup endpoint without a login,
+// so a scheduler never needs a staff PIN or an admin session.
+const BACKUP_TOKEN = process.env.BACKUP_TOKEN || '';
+function validBackupToken(t) {
+  if (!BACKUP_TOKEN || !t) return false;
+  const a = Buffer.from(t);
+  const b = Buffer.from(BACKUP_TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function backupAuth(req, res, next) {
+  if (validBackupToken((req.headers['x-backup-token'] || '').trim())) {
+    req.user = { id: null, role: 'admin', name: 'Backup service' };
+    return next();
+  }
+  // Otherwise fall back to a normal signed admin session.
+  return auth(req, res, () => admin(req, res, next));
+}
+
 // Wrap async route handlers so rejected promises become 500s instead of hangs.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -1959,14 +1978,14 @@ const RESET_TABLES = [
 ];
 
 // Download a full snapshot of the database.
-app.get('/api/admin/backup', auth, admin, wrap(async (req, res) => {
+app.get('/api/admin/backup', backupAuth, wrap(async (req, res) => {
   const tables = {};
   for (const t of BACKUP_TABLES) {
     tables[t] = await query(`SELECT * FROM ${t} ORDER BY ${t === 'app_settings' ? 'key' : 'id'}`);
   }
   const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]));
   const totalRecords = Object.values(counts).reduce((a, n) => a + n, 0);
-  await logActivity(req.user.id, 'Database backup exported', `${totalRecords} records`);
+  await logActivity(req.user.id, 'Database backup exported', `${totalRecords} records${req.user.id === null ? ' (automated)' : ''}`);
   res.json({ app: 'efs-garments', version: 1, exported_at: new Date().toISOString(), counts, tables });
 }));
 
