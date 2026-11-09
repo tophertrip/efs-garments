@@ -25,18 +25,22 @@ function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(() => ({
     name: user?.name || '',
     role: user?.role || 'purchasing',
-    pin: user?.pin || '',
+    pin: '', // never pre-filled — PINs are not sent to the browser
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.name.trim() || !form.role || !String(form.pin).trim()) { setError('Name, role and PIN are required'); return; }
+    if (!form.name.trim() || !form.role) { setError('Name and role are required'); return; }
+    if (!editing && !String(form.pin).trim()) { setError('A PIN is required for a new user'); return; }
     setBusy(true);
     try {
-      if (editing) await api.put(`/admin/users/${user.id}`, form);
-      else await api.post('/admin/users', form);
+      // On edit, only send the PIN when the admin actually typed a new one.
+      const payload = { name: form.name, role: form.role };
+      if (String(form.pin).trim()) payload.pin = String(form.pin).trim();
+      if (editing) await api.put(`/admin/users/${user.id}`, payload);
+      else await api.post('/admin/users', payload);
       onSaved(); onClose();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -51,9 +55,11 @@ function UserModal({ user, onClose, onSaved }) {
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </Select>
         </Field>
-        <Field label="PIN" required>
-          <Input value={form.pin} inputMode="numeric" placeholder="e.g. 1234"
+        <Field label={editing ? 'New PIN' : 'PIN'} required={!editing}>
+          <Input value={form.pin} inputMode="numeric"
+            placeholder={editing ? 'Leave blank to keep current PIN' : 'e.g. 1234'}
             onChange={(e) => setForm({ ...form, pin: e.target.value })} />
+          {editing && <p className="text-xs text-gray-400 mt-1">For security, existing PINs can't be shown — set a new one here to reset it.</p>}
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
@@ -74,7 +80,6 @@ export default function UserManagement() {
   const [toDelete, setToDelete] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
   const [delErr, setDelErr] = useState('');
-  const [revealPins, setRevealPins] = useState(false);
 
   const [draft, setDraft] = useState({});
   const [priceDraft, setPriceDraft] = useState([]); // roles allowed to see ₱ amounts
@@ -211,9 +216,7 @@ export default function UserManagement() {
       <Card className="overflow-hidden mb-8">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <h2 className="font-bold text-navy">Accounts & PINs</h2>
-          <button onClick={() => setRevealPins((v) => !v)} className="text-xs font-medium text-navy hover:underline">
-            {revealPins ? '🙈 Hide PINs' : '👁 Show PINs'}
-          </button>
+          <span className="text-xs text-gray-400">PINs are hidden for security — edit a user to reset their PIN</span>
         </div>
         {loading ? <Spinner /> : (
           <div className="overflow-x-auto">
@@ -230,7 +233,7 @@ export default function UserManagement() {
                   <tr key={u.id} className="hover:bg-cloud">
                     <td className="px-4 py-3 font-semibold text-navy">{u.name}{u.id === me.id && <span className="ml-2 text-[11px] text-gray-400">(you)</span>}</td>
                     <td className="px-4 py-3">{ROLE_LABELS[u.role] || u.role}</td>
-                    <td className="px-4 py-3 font-mono">{revealPins ? u.pin : '••••'}</td>
+                    <td className="px-4 py-3 font-mono text-gray-400">••••</td>
                     <td className="px-4 py-3 whitespace-nowrap text-right">
                       <button onClick={() => setEditUser(u)} className="text-xs font-medium text-navy hover:underline">✏️ Edit</button>
                       <button onClick={() => { setDelErr(''); setToDelete(u); }} className="text-xs font-medium text-red-600 hover:text-red-700 ml-3">🗑 Delete</button>

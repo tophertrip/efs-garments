@@ -3,32 +3,85 @@
 // uses it as a Vercel serverless function.
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const path = require('path');
 const { query, get, run, pool } = require('./db');
 const { STAGES, STAGE_KEYS, nextStage, stageMeta } = require('./stages');
 
 const app = express();
+app.set('trust proxy', true); // behind Render/Cloudflare — needed for a correct client IP
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // large enough for full-database restores
 
 // ---------------------------------------------------------------------------
-// Auth helpers (simple token = base64(JSON) — fine for an in-house MVP)
+// Auth helpers — HMAC-signed tokens so they cannot be forged.
+// Token = base64url(payload) + "." + base64url(HMAC-SHA256(payload, SECRET)).
 // ---------------------------------------------------------------------------
+const AUTH_SECRET = process.env.AUTH_SECRET || '';
+if (!AUTH_SECRET) {
+  console.warn('[SECURITY] AUTH_SECRET is not set — tokens use an insecure fallback. Set AUTH_SECRET in the environment.');
+}
+const SECRET = AUTH_SECRET || 'efs-insecure-dev-fallback-change-me';
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // sessions last 30 days
+
+const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const signPayload = (p) => b64url(crypto.createHmac('sha256', SECRET).update(p).digest());
+
 function makeToken(user) {
-  return Buffer.from(JSON.stringify({ id: user.id, role: user.role, name: user.name })).toString('base64');
+  const payload = { id: user.id, role: user.role, name: user.name, iat: Date.now(), exp: Date.now() + TOKEN_TTL_MS };
+  const p = b64url(JSON.stringify(payload));
+  return `${p}.${signPayload(p)}`;
 }
 
 function auth(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.replace(/^Bearer\s+/i, '');
+  const token = header.replace(/^Bearer\s+/i, '').trim();
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  const [p, sig] = token.split('.');
+  if (!p || !sig) return res.status(401).json({ error: 'Session expired — please log in again' });
+  // Constant-time signature check — rejects any forged / tampered token.
+  const expected = signPayload(p);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: 'Session expired — please log in again' });
+  }
   try {
-    req.user = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+    const data = JSON.parse(Buffer.from(p.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    if (data.exp && Date.now() > data.exp) return res.status(401).json({ error: 'Session expired — please log in again' });
+    req.user = data;
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Login brute-force throttle (per client IP, in-memory).
+// Short PINs are only safe if guessing is rate-limited.
+// ---------------------------------------------------------------------------
+const loginAttempts = new Map(); // ip -> { fails, first, lockedUntil }
+const LOGIN_MAX_FAILS = 8;        // allowed wrong tries before a lockout
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+function loginGuard(req, res, next) {
+  const rec = loginAttempts.get(req.ip);
+  if (rec && rec.lockedUntil && Date.now() < rec.lockedUntil) {
+    const mins = Math.ceil((rec.lockedUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `Too many wrong PINs. Try again in ${mins} minute${mins > 1 ? 's' : ''}.` });
+  }
+  next();
+}
+function recordLoginFail(ip) {
+  const now = Date.now();
+  let rec = loginAttempts.get(ip);
+  if (!rec || now - rec.first > LOGIN_WINDOW_MS) rec = { fails: 0, first: now, lockedUntil: 0 };
+  rec.fails += 1;
+  if (rec.fails >= LOGIN_MAX_FAILS) { rec.lockedUntil = now + LOGIN_LOCK_MS; rec.fails = 0; rec.first = now; }
+  loginAttempts.set(ip, rec);
+}
+const clearLoginFails = (ip) => loginAttempts.delete(ip);
 
 // Wrap async route handlers so rejected promises become 500s instead of hangs.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -225,11 +278,12 @@ async function createStageTask(project, stageKey) {
 // ---------------------------------------------------------------------------
 // AUTH
 // ---------------------------------------------------------------------------
-app.post('/api/auth/login', wrap(async (req, res) => {
+app.post('/api/auth/login', loginGuard, wrap(async (req, res) => {
   const { pin } = req.body;
   if (!pin) return res.status(400).json({ error: 'PIN required' });
   const user = await get('SELECT * FROM users WHERE pin = ?', [String(pin)]);
-  if (!user) return res.status(401).json({ error: 'Invalid PIN' });
+  if (!user) { recordLoginFail(req.ip); return res.status(401).json({ error: 'Invalid PIN' }); }
+  clearLoginFails(req.ip);
   await logActivity(user.id, 'Logged in', user.role);
   res.json({
     token: makeToken(user),
@@ -643,7 +697,8 @@ app.get('/api/users', auth, wrap(async (req, res) => {
 // ADMIN — user management (includes PINs) + per-role tab permissions
 // ---------------------------------------------------------------------------
 app.get('/api/admin/users', auth, admin, wrap(async (req, res) => {
-  res.json(await query('SELECT id, name, role, pin, created_at FROM users ORDER BY id'));
+  // PINs are never sent to the browser — only whether one is set.
+  res.json(await query('SELECT id, name, role, created_at FROM users ORDER BY id'));
 }));
 
 app.post('/api/admin/users', auth, admin, wrap(async (req, res) => {
@@ -653,7 +708,7 @@ app.post('/api/admin/users', auth, admin, wrap(async (req, res) => {
   if (!name || !role || !pin) return res.status(400).json({ error: 'Name, role and PIN are required' });
   const clash = await get('SELECT id FROM users WHERE pin = ?', [pin]);
   if (clash) return res.status(409).json({ error: 'That PIN is already used by another user' });
-  const r = await run('INSERT INTO users (name, role, pin) VALUES (?, ?, ?) RETURNING id, name, role, pin', [name, role, pin]);
+  const r = await run('INSERT INTO users (name, role, pin) VALUES (?, ?, ?) RETURNING id, name, role', [name, role, pin]);
   res.status(201).json(r.rows[0]);
 }));
 
@@ -662,12 +717,17 @@ app.put('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
   const merged = { ...existing };
-  for (const f of ['name', 'role', 'pin']) if (f in req.body) merged[f] = String(req.body[f]).trim();
-  if (!merged.name || !merged.role || !merged.pin) return res.status(400).json({ error: 'Name, role and PIN are required' });
+  for (const f of ['name', 'role']) if (f in req.body) merged[f] = String(req.body[f]).trim();
+  // PIN is optional on edit: a blank/absent PIN keeps the current one.
+  const newPin = req.body.pin == null ? '' : String(req.body.pin).trim();
+  if (newPin) merged.pin = newPin;
+  if (!merged.name || !merged.role || !merged.pin) return res.status(400).json({ error: 'Name and role are required' });
 
-  // PIN must stay unique across users.
-  const clash = await get('SELECT id FROM users WHERE pin = ? AND id <> ?', [merged.pin, req.params.id]);
-  if (clash) return res.status(409).json({ error: 'That PIN is already used by another user' });
+  // PIN must stay unique across users (only check when it actually changes).
+  if (newPin) {
+    const clash = await get('SELECT id FROM users WHERE pin = ? AND id <> ?', [merged.pin, req.params.id]);
+    if (clash) return res.status(409).json({ error: 'That PIN is already used by another user' });
+  }
 
   // Don't allow demoting the last remaining admin.
   if (existing.role === 'admin' && merged.role !== 'admin') {
@@ -676,7 +736,7 @@ app.put('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
   }
 
   await run('UPDATE users SET name = ?, role = ?, pin = ? WHERE id = ?', [merged.name, merged.role, merged.pin, req.params.id]);
-  res.json(await get('SELECT id, name, role, pin FROM users WHERE id = ?', [req.params.id]));
+  res.json(await get('SELECT id, name, role FROM users WHERE id = ?', [req.params.id]));
 }));
 
 app.delete('/api/admin/users/:id', auth, admin, wrap(async (req, res) => {
