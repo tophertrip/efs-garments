@@ -18,6 +18,15 @@ async function request(method, url, body) {
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+  // An expired or invalid session: clear it and return to the login screen,
+  // so the user re-logs in instead of seeing broken pages. (A wrong PIN also
+  // returns 401 on /auth/login — leave that one alone to show its error.)
+  if (res.status === 401 && url !== '/auth/login') {
+    const hadToken = !!getToken();
+    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('efs_user'); } catch {}
+    if (hadToken) window.location.reload(); // only when we actually had a session (no reload loop)
+    throw new Error('Session expired — please log in again');
+  }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try { msg = (await res.json()).error || msg; } catch {}
